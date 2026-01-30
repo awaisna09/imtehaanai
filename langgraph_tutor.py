@@ -1219,6 +1219,15 @@ def FetchDataParallel(state: TutorState):
             if lesson_text:
                 cache_set(lesson_cache_key, lesson_text, ttl=3600)
         
+        # FIX: Handle case where lesson_text might be a list (from old cache format)
+        # Convert list to string if needed
+        if isinstance(lesson_text, list):
+            # If it's a list, join it into a string
+            lesson_text = "\n\n".join(str(item) for item in lesson_text) if lesson_text else ""
+        elif not isinstance(lesson_text, str):
+            # If it's not a string or list, convert to string
+            lesson_text = str(lesson_text) if lesson_text else ""
+        
         text_hash = (
             hashlib.md5(lesson_text.encode()).hexdigest()
             if lesson_text else None
@@ -1574,6 +1583,15 @@ def FetchLesson(state: TutorState):
                 )
 
     # Skip lesson chunks entirely for speed (not critical for responses)
+    # FIX: Handle case where lesson_text might be a list (from old cache format)
+    # Convert list to string if needed
+    if isinstance(lesson_text, list):
+        # If it's a list, join it into a string
+        lesson_text = "\n\n".join(str(item) for item in lesson_text) if lesson_text else ""
+    elif not isinstance(lesson_text, str):
+        # If it's not a string or list, convert to string
+        lesson_text = str(lesson_text) if lesson_text else ""
+    
     # Compute hash and update state
     text_hash = (
         hashlib.md5(lesson_text.encode()).hexdigest()
