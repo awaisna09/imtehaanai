@@ -231,76 +231,28 @@ class RedisConfig:
                 ),
             }
         else:
-            # For Railway Redis, check if SSL is required
-            # Only external Railway hosts (.rlwy.net, .railway.app) need SSL
-            # Internal hosts (redis.railway.internal) do NOT need SSL
-            use_ssl = False
-            if self.host:
-                # External Railway hosts require SSL
-                if ".railway.app" in self.host or ".rlwy.net" in self.host:
-                    use_ssl = True
-                # Internal Railway hosts do NOT require SSL
-                elif "redis.railway.internal" in self.host:
-                    use_ssl = False
-                # Check REDIS_SSL env var as fallback
-                else:
-                    use_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
+            # For Railway Redis, try simple redis:// URL first (no SSL)
+            # Railway external connections might work without SSL
+            # If that fails, we'll try with SSL in _initialize_connection
+            password_part = f":{self.password}@" if self.password else ""
+            redis_url = f"redis://{password_part}{self.host}:{self.port}/{self.db}"
             
-            # If SSL is needed, construct rediss:// URL and use redis.from_url()
-            if use_ssl:
-                logger.info(
-                    f"Using SSL (rediss://) for Redis connection to "
-                    f"{self.host}:{self.port}"
-                )
-
-                # Construct rediss:// URL for SSL connections
-                # Format: rediss://:password@host:port/db?ssl_cert_reqs=none
-                # Railway Redis uses self-signed certificates
-                password_part = f":{self.password}@" if self.password else ""
-                redis_url = (
-                    f"rediss://{password_part}{self.host}:{self.port}/"
-                    f"{self.db}?ssl_cert_reqs=none"
-                )
-
-                # Return URL to use with redis.from_url() in _initialize_connection
-                return {
-                    "redis_url": redis_url,
-                    "max_connections": self.max_connections,
-                    "socket_connect_timeout": self.socket_connect_timeout,
-                    "socket_timeout": self.socket_timeout,
-                    "health_check_interval": self.health_check_interval,
-                    "retry_on_timeout": self.retry_on_timeout,
-                    "decode_responses": self.decode_responses,
-                    "socket_keepalive": self.socket_keepalive,
-                    "socket_keepalive_options": (
-                        self.socket_keepalive_options
-                        if self.socket_keepalive_options
-                        else None
-                    ),
-                }
-            
-            # Non-SSL connection using separate parameters
-            connection_params = {
-                "host": self.host,
-                "port": self.port,
-                "password": self.password,
-                "db": self.db,
+            # Return URL to use with redis.from_url() - try non-SSL first
+            return {
+                "redis_url": redis_url,
+                "max_connections": self.max_connections,
                 "socket_connect_timeout": self.socket_connect_timeout,
                 "socket_timeout": self.socket_timeout,
                 "health_check_interval": self.health_check_interval,
-                "max_connections": self.max_connections,
                 "retry_on_timeout": self.retry_on_timeout,
                 "decode_responses": self.decode_responses,
                 "socket_keepalive": self.socket_keepalive,
-            }
-            
-            # Add keepalive options if available
-            if self.socket_keepalive_options:
-                connection_params["socket_keepalive_options"] = (
+                "socket_keepalive_options": (
                     self.socket_keepalive_options
-                )
-            
-            return connection_params
+                    if self.socket_keepalive_options
+                    else None
+                ),
+            }
 
 
 class RedisConnection:
@@ -325,7 +277,7 @@ class RedisConnection:
         try:
             kwargs = self.config.get_connection_kwargs()
             
-            # If redis_url is provided (for SSL connections), use redis.from_url()
+            # If redis_url is provided, try non-SSL first, then SSL if needed
             if "redis_url" in kwargs:
                 redis_url = kwargs.pop("redis_url")
                 # Extract connection pool parameters
@@ -349,31 +301,71 @@ class RedisConnection:
                 pool_kwargs = {
                     k: v for k, v in pool_kwargs.items() if v is not None
                 }
-                # Use redis.from_url() which handles SSL properly
-                self._client = redis.from_url(redis_url, **pool_kwargs)
+                
+                # Try non-SSL connection first (redis://)
+                try:
+                    logger.info(f"Attempting Redis connection (no SSL): {redis_url[:50]}...")
+                    self._client = redis.from_url(redis_url, **pool_kwargs)
+                    self._client.ping()
+                    logger.info(
+                        f"✅ Redis connected (no SSL): {self.config.environment} environment | "
+                        f"{self.config.host or 'URL-based'}:"
+                        f"{self.config.port or 'N/A'}"
+                    )
+                except (redis.ConnectionError, OSError, Exception) as e:
+                    # If non-SSL fails, try with SSL (rediss://)
+                    logger.warning(
+                        f"Non-SSL connection failed: {e}. Trying with SSL (rediss://)..."
+                    )
+                    # Convert redis:// to rediss:// for SSL
+                    ssl_url = redis_url.replace("redis://", "rediss://")
+                    # Add SSL certificate requirements
+                    if "?" in ssl_url:
+                        ssl_url += "&ssl_cert_reqs=none"
+                    else:
+                        ssl_url += "?ssl_cert_reqs=none"
+                    
+                    try:
+                        self._client = redis.from_url(ssl_url, **pool_kwargs)
+                        self._client.ping()
+                        logger.info(
+                            f"✅ Redis connected (with SSL): {self.config.environment} environment | "
+                            f"{self.config.host or 'URL-based'}:"
+                            f"{self.config.port or 'N/A'}"
+                        )
+                    except Exception as ssl_error:
+                        logger.error(f"❌ SSL connection also failed: {ssl_error}")
+                        raise
             elif "connection_pool" not in kwargs:
                 # Create connection pool for non-SSL connections
                 self._pool = ConnectionPool(**kwargs)
                 kwargs = {"connection_pool": self._pool}
                 self._client = redis.Redis(**kwargs)
+                # Test connection
+                self._client.ping()
+                logger.info(
+                    f"✅ Redis connected: {self.config.environment} environment | "
+                    f"{self.config.host or 'URL-based'}:"
+                    f"{self.config.port or 'N/A'}"
+                )
             else:
                 # Use provided connection pool
                 self._client = redis.Redis(**kwargs)
-            
-            # Test connection
-            self._client.ping()
-            
-            logger.info(
-                f"✅ Redis connected: {self.config.environment} environment | "
-                f"{self.config.host or 'URL-based'}:"
-                f"{self.config.port or 'N/A'}"
-            )
+                # Test connection
+                self._client.ping()
+                logger.info(
+                    f"✅ Redis connected: {self.config.environment} environment | "
+                    f"{self.config.host or 'URL-based'}:"
+                    f"{self.config.port or 'N/A'}"
+                )
             
         except redis.ConnectionError as e:
             logger.error(f"❌ Redis connection failed: {e}")
             raise
         except Exception as e:
             logger.error(f"❌ Unexpected error initializing Redis: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             raise
     
     def get_client(self) -> redis.Redis:
