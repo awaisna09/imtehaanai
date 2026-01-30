@@ -42,47 +42,18 @@ class RedisConfig:
             redis_port = os.getenv("REDIS_PORT")
             redis_password = os.getenv("REDIS_PASSWORD")
             
-            # Priority 1: Use REDIS_URL if available
-            # BUT: If REDIS_URL uses redis.railway.internal and we have external vars,
-            # use external connection instead (internal may not be accessible)
+            # Priority 1: Use REDIS_URL if available (Railway provides this)
+            # Since backend and Redis are in same project, internal connection should work
             if redis_url:
-                # Check if REDIS_URL uses internal hostname
-                if "redis.railway.internal" in redis_url:
-                    # Internal hostname may not be accessible
-                    # Check if we have external connection variables
-                    if redis_host and ".rlwy.net" in redis_host:
-                        # Use external connection instead
-                        logger.warning(
-                            f"REDIS_URL uses redis.railway.internal which may not be "
-                            f"accessible. Using external connection: {redis_host}"
-                        )
-                        self.host = redis_host
-                        self.port = int(redis_port or 6379)
-                        self.password = redis_password or None
-                        self.db = int(os.getenv("REDIS_DB", 0))
-                        self.url = None
-                    else:
-                        # Try internal connection anyway
-                        self.host = None
-                        self.port = None
-                        self.password = None
-                        self.db = 0
-                        self.url = redis_url
-                        logger.info(
-                            f"Using REDIS_URL (production mode): "
-                            f"{redis_url.split('@')[-1] if '@' in redis_url else 'URL-based'}"
-                        )
-                else:
-                    # REDIS_URL uses external hostname - use it
-                    self.host = None
-                    self.port = None
-                    self.password = None
-                    self.db = 0
-                    self.url = redis_url
-                    logger.info(
-                        f"Using REDIS_URL (production mode): "
-                        f"{redis_url.split('@')[-1] if '@' in redis_url else 'URL-based'}"
-                    )
+                self.host = None
+                self.port = None
+                self.password = None
+                self.db = 0
+                self.url = redis_url
+                logger.info(
+                    f"Using REDIS_URL (production mode): "
+                    f"{redis_url.split('@')[-1] if '@' in redis_url else 'URL-based'}"
+                )
             # Priority 2: Use separate variables if REDIS_URL is not available
             elif redis_host or redis_port or redis_password:
                 self.host = redis_host or "localhost"
@@ -214,22 +185,22 @@ class RedisConfig:
     def get_connection_kwargs(self) -> dict:
         """Get connection parameters for redis client"""
         if self.url:
+            # Use redis.from_url() for URL-based connections
+            # This handles both redis:// and rediss:// URLs properly
             return {
-                "connection_pool": ConnectionPool.from_url(
-                    self.url,
-                    max_connections=self.max_connections,
-                    socket_connect_timeout=self.socket_connect_timeout,
-                    socket_timeout=self.socket_timeout,
-                    health_check_interval=self.health_check_interval,
-                    retry_on_timeout=self.retry_on_timeout,
-                    decode_responses=self.decode_responses,
-                    socket_keepalive=self.socket_keepalive,
-                    socket_keepalive_options=(
-                        self.socket_keepalive_options
-                        if self.socket_keepalive_options
-                        else None
-                    ),
-                )
+                "redis_url": self.url,
+                "max_connections": self.max_connections,
+                "socket_connect_timeout": self.socket_connect_timeout,
+                "socket_timeout": self.socket_timeout,
+                "health_check_interval": self.health_check_interval,
+                "retry_on_timeout": self.retry_on_timeout,
+                "decode_responses": self.decode_responses,
+                "socket_keepalive": self.socket_keepalive,
+                "socket_keepalive_options": (
+                    self.socket_keepalive_options
+                    if self.socket_keepalive_options
+                    else None
+                ),
             }
         else:
             # For Railway Redis, check if SSL is required
