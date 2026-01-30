@@ -68,11 +68,22 @@ class RedisConfig:
             # Production: Prioritize REDIS_URL (Railway provides this)
             # Fall back to separate vars only if REDIS_URL is not available
             redis_url = os.getenv("REDIS_URL")
-            redis_user = os.getenv("REDISUSER") or os.getenv("REDIS_USER") or "default"
-            redis_password = os.getenv("REDISPASSWORD") or os.getenv("REDIS_PASSWORD")
+            
+            # Railway provides vars WITHOUT underscores - prioritize these first
+            # Format: REDISHOST, REDISPORT, REDISPASSWORD, REDISUSER
             redis_host = os.getenv("REDISHOST") or os.getenv("REDIS_HOST")
             redis_port = os.getenv("REDISPORT") or os.getenv("REDIS_PORT")
+            redis_password = os.getenv("REDISPASSWORD") or os.getenv("REDIS_PASSWORD")
+            redis_user = os.getenv("REDISUSER") or os.getenv("REDIS_USER") or "default"
             redis_db = os.getenv("REDIS_DB", "0")
+            
+            # Debug: Log which Railway vars exist (use info level so it's visible)
+            logger.info(
+                f"Redis vars check - REDISHOST: {'✓' if os.getenv('REDISHOST') else '✗'}, "
+                f"REDISPORT: {'✓' if os.getenv('REDISPORT') else '✗'}, "
+                f"REDISPASSWORD: {'✓' if os.getenv('REDISPASSWORD') else '✗'}, "
+                f"REDISUSER: {'✓' if os.getenv('REDISUSER') else '✗'}"
+            )
             
             # Priority 1: Use REDIS_URL if available
             # If REDIS_URL uses redis.railway.internal, rebuild using external vars
@@ -81,7 +92,7 @@ class RedisConfig:
                 if "redis.railway.internal" in redis_url:
                     # Fallback: rebuild redis_url using external variables
                     if redis_host and redis_port:
-                        # Rebuild URL: redis://{REDISUSER}:{REDISPASSWORD}@{REDISHOST}:{REDISPORT}/{REDIS_DB}
+                        # Rebuild URL: redis://{user}:{password}@{host}:{port}/{db}
                         password_part = f":{redis_password}@" if redis_password else ""
                         redis_url = f"redis://{redis_user}{password_part}{redis_host}:{redis_port}/{redis_db}"
                         logger.warning(
