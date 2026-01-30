@@ -4061,17 +4061,65 @@ async def analytics_start(req: TimeStartRequest):
         result = sb_execute(
             supabase_client.table("time_tracking").insert(record)
         )
-        tracking_id = result.data[0]["id"]
+        
+        # Validate result
+        if not result:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create tracking record: No response from database"
+            )
+        
+        if not hasattr(result, 'data') or not result.data:
+            # Log the actual error if available
+            error_detail = "Unknown error"
+            if hasattr(result, 'error') and result.error:
+                error_detail = str(result.error)
+            elif hasattr(result, 'message') and result.message:
+                error_detail = str(result.message)
+            
+            if ENABLE_DEBUG:
+                print(f"❌ Time tracking insert failed: {error_detail}")
+                print(f"   Record: {record}")
+                print(f"   Result: {result}")
+            
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create tracking record: {error_detail}"
+            )
+        
+        if len(result.data) == 0:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create tracking record: No data returned"
+            )
+        
+        tracking_id = result.data[0].get("id")
+        
+        if not tracking_id:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create tracking record: No tracking ID returned"
+            )
 
         return {
             "success": True,
             "tracking_id": tracking_id
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
+        # Log the full error for debugging
+        error_msg = str(e)
+        if ENABLE_DEBUG:
+            import traceback
+            print(f"❌ Error in analytics_start: {error_msg}")
+            print(traceback.format_exc())
+            print(f"   Record: {record}")
+        
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to start tracking: {str(e)}"
+            detail=f"Failed to start tracking: {error_msg}"
         )
 
 
@@ -4633,7 +4681,7 @@ async def update_accuracy(user_id: str):
 # ===== STUDY PLANNER ENDPOINTS =====
 
 @app.get("/api/v1/study-plans")
-async def get_study_plans(user_id: str):
+async def get_study_plans(user_id: str = Query(...)):
     """Get all active study plans for a user"""
     if not study_planner_service:
         raise HTTPException(
@@ -4641,7 +4689,14 @@ async def get_study_plans(user_id: str):
             detail="Study planner service not available"
         )
     
+    if not user_id or user_id.strip() == "":
+        raise HTTPException(
+            status_code=400,
+            detail="user_id is required"
+        )
+    
     try:
+        # Get plans from study planner service
         plans = study_planner_service.get_user_study_plans(user_id, status='active')
         
         if not plans:
@@ -4650,19 +4705,63 @@ async def get_study_plans(user_id: str):
         # OPTIMIZATION: Fetch all topic counts in a single query instead of N queries
         plan_ids = [plan['id'] for plan in plans]
         
-        # Get all topics for all plans in one query
-        all_topics_response = sb_execute(
-            supabase_client.table('study_plan_topics_v2')
-            .select('plan_id, topic_id')
-            .in_('plan_id', plan_ids)
-        )
+        # Check if supabase_client is available
+        if not supabase_client:
+            # If supabase_client is not available, return plans without topic counts
+            formatted_plans = []
+            today = date.today()
+            subject_id_to_name = {
+                101: 'Business Studies',
+                102: 'Islamiyat',
+                103: 'Mathematics',
+                104: 'Physics',
+                105: 'Chemistry',
+                113: 'Pak Studies Geography',
+                114: 'Pak Studies History',
+                119: 'Economics'
+            }
+            
+            for plan in plans:
+                plan_id = plan['id']
+                exam_date = datetime.fromisoformat(plan['exam_date']).date()
+                days_left = max(0, (exam_date - today).days)
+                subject_id = plan.get('subject_id')
+                subject_name = plan.get('subject') or subject_id_to_name.get(subject_id, 'Unknown Subject')
+                
+                formatted_plans.append({
+                    'id': plan_id,
+                    'plan_name': plan['plan_name'],
+                    'subject_id': subject_id,
+                    'subject': subject_name,
+                    'topics_count': 0,  # Default to 0 if we can't fetch
+                    'days_left': days_left,
+                    'exam_date': plan['exam_date'],
+                    'status': plan['status'],
+                    'created_at': plan['created_at']
+                })
+            
+            return {"success": True, "data": formatted_plans}
         
-        # Build a dictionary mapping plan_id to topic count
+        # Get all topics for all plans in one query
         topics_count_map = {}
-        if all_topics_response.data:
-            for topic_row in all_topics_response.data:
-                plan_id = topic_row['plan_id']
-                topics_count_map[plan_id] = topics_count_map.get(plan_id, 0) + 1
+        if plan_ids:  # Only query if we have plan IDs
+            try:
+                all_topics_response = sb_execute(
+                    supabase_client.table('study_plan_topics_v2')
+                    .select('plan_id, topic_id')
+                    .in_('plan_id', plan_ids)
+                )
+                
+                # Build a dictionary mapping plan_id to topic count
+                if all_topics_response and all_topics_response.data:
+                    for topic_row in all_topics_response.data:
+                        plan_id = topic_row['plan_id']
+                        topics_count_map[plan_id] = topics_count_map.get(plan_id, 0) + 1
+            except Exception as topics_error:
+                # Log error but continue without topic counts
+                if ENABLE_DEBUG:
+                    print(f"⚠️ Error fetching topic counts: {topics_error}")
+                # Continue with empty topics_count_map
         
         # Format response with summary data
         formatted_plans = []
@@ -4681,35 +4780,53 @@ async def get_study_plans(user_id: str):
         }
         
         for plan in plans:
-            plan_id = plan['id']
-            topics_count = topics_count_map.get(plan_id, 0)
-            
-            # Calculate days left
-            exam_date = datetime.fromisoformat(plan['exam_date']).date()
-            days_left = max(0, (exam_date - today).days)
-            
-            # Get subject name from plan or derive from subject_id
-            subject_id = plan.get('subject_id')
-            subject_name = plan.get('subject') or subject_id_to_name.get(subject_id, 'Unknown Subject')
-            
-            formatted_plans.append({
-                'id': plan_id,
-                'plan_name': plan['plan_name'],
-                'subject_id': subject_id,
-                'subject': subject_name,
-                'topics_count': topics_count,
-                'days_left': days_left,
-                'exam_date': plan['exam_date'],
-                'status': plan['status'],
-                'created_at': plan['created_at']
-            })
+            try:
+                plan_id = plan['id']
+                topics_count = topics_count_map.get(plan_id, 0)
+                
+                # Calculate days left
+                exam_date_str = plan.get('exam_date')
+                if exam_date_str:
+                    exam_date = datetime.fromisoformat(exam_date_str).date()
+                    days_left = max(0, (exam_date - today).days)
+                else:
+                    days_left = 0
+                
+                # Get subject name from plan or derive from subject_id
+                subject_id = plan.get('subject_id')
+                subject_name = plan.get('subject') or subject_id_to_name.get(subject_id, 'Unknown Subject')
+                
+                formatted_plans.append({
+                    'id': plan_id,
+                    'plan_name': plan.get('plan_name', 'Unnamed Plan'),
+                    'subject_id': subject_id,
+                    'subject': subject_name,
+                    'topics_count': topics_count,
+                    'days_left': days_left,
+                    'exam_date': exam_date_str or '',
+                    'status': plan.get('status', 'active'),
+                    'created_at': plan.get('created_at', '')
+                })
+            except Exception as plan_error:
+                # Log error for this plan but continue with others
+                if ENABLE_DEBUG:
+                    print(f"⚠️ Error formatting plan {plan.get('id', 'unknown')}: {plan_error}")
+                continue
         
         return {"success": True, "data": formatted_plans}
     
+    except HTTPException:
+        raise
     except Exception as e:
+        # Log the full error for debugging
+        error_msg = str(e)
+        if ENABLE_DEBUG:
+            import traceback
+            print(f"❌ Error in get_study_plans: {error_msg}")
+            print(traceback.format_exc())
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch study plans: {str(e)}"
+            detail=f"Failed to fetch study plans: {error_msg}"
         )
 
 

@@ -34,19 +34,40 @@ class RedisConfig:
         
         # Base configuration
         if self.environment == Environment.PRODUCTION:
-            # Production: REDIS_URL is REQUIRED (Railway provides this)
+            # Production: Try REDIS_URL first, fall back to separate vars if needed
             redis_url = os.getenv("REDIS_URL")
-            if not redis_url:
-                raise ValueError(
-                    "REDIS_URL is required in production. "
-                    "Please set REDIS_URL environment variable. "
-                    "Railway provides this automatically when you add a Redis service."
+            redis_host = os.getenv("REDIS_HOST")
+            redis_port = os.getenv("REDIS_PORT")
+            redis_password = os.getenv("REDIS_PASSWORD")
+            
+            # If separate variables are set, use them
+            # (allows bypassing broken REDIS_URL)
+            if redis_host or redis_port or redis_password:
+                self.host = redis_host or "localhost"
+                self.port = int(redis_port or 6379)
+                self.password = redis_password or None
+                self.db = int(os.getenv("REDIS_DB", 0))
+                self.url = None
+                logger.info(
+                    f"Using separate Redis variables (production mode): "
+                    f"{self.host}:{self.port}"
                 )
-            self.host = None
-            self.port = None
-            self.password = None
-            self.db = 0
-            self.url = redis_url
+            elif redis_url:
+                # Use REDIS_URL if provided and no separate variables
+                self.host = None
+                self.port = None
+                self.password = None
+                self.db = 0
+                self.url = redis_url
+            else:
+                # Neither REDIS_URL nor separate variables are set
+                raise ValueError(
+                    "Redis configuration is required in production. "
+                    "Please set either REDIS_URL or separate variables "
+                    "(REDIS_HOST, REDIS_PORT, REDIS_PASSWORD). "
+                    "Railway provides REDIS_URL automatically when you "
+                    "add a Redis service."
+                )
             
             # Production settings
             self.socket_connect_timeout = 10
@@ -93,21 +114,41 @@ class RedisConfig:
             
         else:
             # Development/Test: Support both URL and local configuration
-            redis_url = os.getenv("REDIS_URL")
-            if redis_url:
-                # Use managed Redis URL if provided
-                self.host = None
-                self.port = None
-                self.password = None
-                self.db = 0
-                self.url = redis_url
-            else:
-                # Local configuration fallback
-                self.host = os.getenv("REDIS_HOST", "localhost")
-                self.port = int(os.getenv("REDIS_PORT", 6379))
-                self.password = os.getenv("REDIS_PASSWORD") or None
+            # Priority: If REDIS_HOST is explicitly set, use separate vars
+            # Otherwise, try REDIS_URL first, then fall back to separate vars
+            redis_host = os.getenv("REDIS_HOST")
+            redis_port = os.getenv("REDIS_PORT")
+            redis_password = os.getenv("REDIS_PASSWORD")
+            
+            # If separate variables are explicitly set, use them
+            # (allows bypassing broken REDIS_URL)
+            if redis_host or redis_port or redis_password:
+                self.host = redis_host or "localhost"
+                self.port = int(redis_port or 6379)
+                self.password = redis_password or None
                 self.db = int(os.getenv("REDIS_DB", 0))
                 self.url = None
+                logger.info(
+                    f"Using separate Redis variables (development mode): "
+                    f"{self.host}:{self.port}"
+                )
+            else:
+                # Try REDIS_URL if no separate variables are set
+                redis_url = os.getenv("REDIS_URL")
+                if redis_url:
+                    # Use managed Redis URL if provided
+                    self.host = None
+                    self.port = None
+                    self.password = None
+                    self.db = 0
+                    self.url = redis_url
+                else:
+                    # Local configuration fallback
+                    self.host = os.getenv("REDIS_HOST", "localhost")
+                    self.port = int(os.getenv("REDIS_PORT", 6379))
+                    self.password = os.getenv("REDIS_PASSWORD") or None
+                    self.db = int(os.getenv("REDIS_DB", 0))
+                    self.url = None
             
             self.socket_connect_timeout = 3
             self.socket_timeout = 10
@@ -131,7 +172,11 @@ class RedisConfig:
                     retry_on_timeout=self.retry_on_timeout,
                     decode_responses=self.decode_responses,
                     socket_keepalive=self.socket_keepalive,
-                    socket_keepalive_options=self.socket_keepalive_options if self.socket_keepalive_options else None,
+                    socket_keepalive_options=(
+                        self.socket_keepalive_options
+                        if self.socket_keepalive_options
+                        else None
+                    ),
                 )
             }
         else:
@@ -152,7 +197,7 @@ class RedisConfig:
 
 
 class RedisConnection:
-    """Reusable Redis connection manager with connection pooling and health checks"""
+    """Redis connection manager with connection pooling and health checks"""
     
     _instance: Optional['RedisConnection'] = None
     _client: Optional[redis.Redis] = None
@@ -185,7 +230,8 @@ class RedisConnection:
             
             logger.info(
                 f"✅ Redis connected: {self.config.environment} environment | "
-                f"{self.config.host or 'URL-based'}:{self.config.port or 'N/A'}"
+                f"{self.config.host or 'URL-based'}:"
+                f"{self.config.port or 'N/A'}"
             )
             
         except redis.ConnectionError as e:
@@ -304,7 +350,9 @@ class RedisConnection:
                 "redis_version": info.get("redis_version"),
                 "used_memory_human": info.get("used_memory_human"),
                 "connected_clients": info.get("connected_clients"),
-                "total_commands_processed": info.get("total_commands_processed"),
+                "total_commands_processed": info.get(
+                    "total_commands_processed"
+                ),
             }
         except Exception as e:
             logger.error(f"Error getting Redis info: {e}")

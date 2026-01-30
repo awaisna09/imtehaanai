@@ -18,6 +18,9 @@ REDIS_URL=redis://default:BpymepesTceqpFGWXfQxwbJpaqXbqldH@switchyard.proxy.rlwy
 # =============================================================================
 # ENVIRONMENT IDENTIFICATION
 # =============================================================================
+# IMPORTANT: Set to "production" for Railway deployment
+# Development mode enables auto-reload and DEBUG logging (not ideal for Railway)
+# If you must use "development", also set ALLOW_PROD_SUPABASE_IN_DEV=true
 ENVIRONMENT=production
 
 # =============================================================================

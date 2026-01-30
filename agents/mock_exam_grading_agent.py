@@ -3695,6 +3695,7 @@ if FASTAPI_AVAILABLE:
 
     if "*" not in ALLOWED_ORIGINS:
         # Only add localhost for non-production environments
+        environment = os.getenv("ENVIRONMENT", "development").lower()
         if environment != "production":
             localhost_origins = [
                 "http://localhost:5173",
