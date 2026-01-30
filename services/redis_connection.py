@@ -205,9 +205,14 @@ class RedisConfig:
                     f"{self.host}:{self.port}"
                 )
 
-                # Use redis.Redis() directly with SSL parameters
-                # This is the most reliable method for Railway Redis
+                # Create SSL context for Railway Redis
                 # Railway Redis uses self-signed certificates
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+
+                # Use redis.Redis() directly with SSL context
+                # This is the most reliable method for Railway Redis
                 return {
                     "host": self.host,
                     "port": self.port,
@@ -230,7 +235,8 @@ class RedisConfig:
                         else None
                     ),
                     "ssl": True,
-                    "ssl_cert_reqs": "none",  # Disable cert verification
+                    "ssl_cert_reqs": ssl.CERT_NONE,  # Use constant
+                    "ssl_context": ssl_context,  # Explicit SSL context
                 }
             
             # Non-SSL connection using separate parameters
@@ -286,7 +292,10 @@ class RedisConnection:
                 ssl_params = {
                     "ssl": kwargs.pop("ssl"),
                     "ssl_cert_reqs": kwargs.pop("ssl_cert_reqs", None),
+                    "ssl_context": kwargs.pop("ssl_context", None),
                 }
+                # Remove None values
+                ssl_params = {k: v for k, v in ssl_params.items() if v is not None}
                 # Create Redis client directly with SSL
                 self._client = redis.Redis(**kwargs, **ssl_params)
             elif "connection_pool" not in kwargs:
