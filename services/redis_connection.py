@@ -5,6 +5,7 @@ Provides environment-based configuration and connection management
 
 import os
 import logging
+import ssl
 from typing import Optional
 from enum import Enum
 import redis
@@ -197,25 +198,35 @@ class RedisConfig:
             if self.host and (".railway.app" in self.host or ".rlwy.net" in self.host):
                 use_ssl = True
             
-            # If SSL is needed, construct rediss:// URL instead of using separate params
+            # If SSL is needed, use ConnectionPool with SSL context
             if use_ssl:
-                # Construct rediss:// URL for SSL connections
-                # Format: rediss://:password@host:port/db
-                password_part = f":{self.password}@" if self.password else ""
-                redis_url = f"rediss://{password_part}{self.host}:{self.port}/{self.db}"
-                
                 logger.info(
-                    f"Using SSL (rediss://) for Redis connection to {self.host}:{self.port}"
+                    f"Using SSL for Redis connection to "
+                    f"{self.host}:{self.port}"
                 )
-                
-                # Use URL-based connection with rediss:// (SSL enabled)
+
+                # Create SSL context for Railway Redis
+                # Railway Redis uses self-signed certificates,
+                # so we disable verification
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+
+                # Use ConnectionPool with SSL context for Railway Redis
                 return {
-                    "connection_pool": ConnectionPool.from_url(
-                        redis_url,
+                    "connection_pool": ConnectionPool(
+                        host=self.host,
+                        port=self.port,
+                        password=self.password,
+                        db=self.db,
                         max_connections=self.max_connections,
-                        socket_connect_timeout=self.socket_connect_timeout,
+                        socket_connect_timeout=(
+                            self.socket_connect_timeout
+                        ),
                         socket_timeout=self.socket_timeout,
-                        health_check_interval=self.health_check_interval,
+                        health_check_interval=(
+                            self.health_check_interval
+                        ),
                         retry_on_timeout=self.retry_on_timeout,
                         decode_responses=self.decode_responses,
                         socket_keepalive=self.socket_keepalive,
@@ -224,6 +235,8 @@ class RedisConfig:
                             if self.socket_keepalive_options
                             else None
                         ),
+                        ssl=True,
+                        ssl_cert_reqs=ssl.CERT_NONE,
                     )
                 }
             
