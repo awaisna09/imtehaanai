@@ -651,6 +651,28 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             raise
 
 
+# Path Normalization Middleware (fixes double slashes)
+class PathNormalizationMiddleware(BaseHTTPMiddleware):
+    """Middleware to normalize paths (remove double slashes)"""
+    
+    async def dispatch(self, request: StarletteRequest, call_next):
+        # Normalize path: remove double slashes (but keep single leading slash)
+        if "//" in request.url.path:
+            # Replace all double slashes with single slash
+            normalized_path = request.url.path.replace("//", "/")
+            # Ensure path starts with single slash
+            if not normalized_path.startswith("/"):
+                normalized_path = "/" + normalized_path
+            
+            # Create new request with normalized path
+            from starlette.datastructures import URL
+            new_url = request.url.replace(path=normalized_path)
+            request.scope["path"] = normalized_path
+            request.scope["raw_path"] = normalized_path.encode()
+        
+        # Continue with normalized path
+        return await call_next(request)
+
 # Add request logging middleware (after CORS, before endpoints)
 # Load Shedding Middleware (defined here after all config is loaded)
 class LoadSheddingMiddleware(BaseHTTPMiddleware):
@@ -728,6 +750,7 @@ class LoadSheddingMiddleware(BaseHTTPMiddleware):
         # All checks passed - proceed with request
         return await call_next(request)
 
+app.add_middleware(PathNormalizationMiddleware)  # Normalize paths and handle OPTIONS
 app.add_middleware(LoadSheddingMiddleware)
 app.add_middleware(RequestIDMiddleware)  # Add request_id and correlation_id to all requests
 app.add_middleware(RequestLoggingMiddleware)
@@ -4691,7 +4714,7 @@ async def update_accuracy(user_id: str):
 # ===== STUDY PLANNER ENDPOINTS =====
 
 @app.get("/api/v1/study-plans")
-async def get_study_plans(user_id: str = Query(...)):
+async def get_study_plans(user_id: str = Query(..., description="User ID")):
     """Get all active study plans for a user"""
     if not study_planner_service:
         raise HTTPException(
