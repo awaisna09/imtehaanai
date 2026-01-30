@@ -5,18 +5,48 @@ Provides environment-based configuration and connection management
 
 import os
 import logging
-import ssl
 from typing import Optional
 from enum import Enum
+from urllib.parse import urlparse
 import redis
 from redis.connection import ConnectionPool
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv('config.env')
+# Load environment variables only locally (skip when RAILWAY_ENVIRONMENT is set)
+if not os.getenv("RAILWAY_ENVIRONMENT"):
+    load_dotenv('config.env')
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+def _safe_redis_log_target(redis_url: str) -> str:
+    """
+    Safely extract host:port from Redis URL for logging (no passwords).
+    
+    Args:
+        redis_url: Redis connection URL
+        
+    Returns:
+        Safe string with host:port only
+    """
+    try:
+        parsed = urlparse(redis_url)
+        if parsed.hostname and parsed.port:
+            return f"{parsed.hostname}:{parsed.port}"
+        elif parsed.hostname:
+            return parsed.hostname
+        else:
+            return "URL-based"
+    except Exception:
+        # Fallback: try to extract host:port manually
+        if "@" in redis_url:
+            # Format: redis://user:pass@host:port/db
+            after_at = redis_url.split("@")[-1]
+            if ":" in after_at:
+                return after_at.split("/")[0]  # host:port
+            return after_at.split("/")[0] if "/" in after_at else after_at
+        return "URL-based"
 
 
 class Environment(str, Enum):
@@ -38,60 +68,51 @@ class RedisConfig:
             # Production: Prioritize REDIS_URL (Railway provides this)
             # Fall back to separate vars only if REDIS_URL is not available
             redis_url = os.getenv("REDIS_URL")
-            redis_host = os.getenv("REDIS_HOST")
-            redis_port = os.getenv("REDIS_PORT")
-            redis_password = os.getenv("REDIS_PASSWORD")
+            redis_user = os.getenv("REDISUSER") or os.getenv("REDIS_USER") or "default"
+            redis_password = os.getenv("REDISPASSWORD") or os.getenv("REDIS_PASSWORD")
+            redis_host = os.getenv("REDISHOST") or os.getenv("REDIS_HOST")
+            redis_port = os.getenv("REDISPORT") or os.getenv("REDIS_PORT")
+            redis_db = os.getenv("REDIS_DB", "0")
             
             # Priority 1: Use REDIS_URL if available
-            # If REDIS_URL uses redis.railway.internal and it's not working,
-            # check if we have external connection variables to use instead
+            # If REDIS_URL uses redis.railway.internal, rebuild using external vars
             if redis_url:
                 # Check if REDIS_URL uses internal hostname that's not accessible
                 if "redis.railway.internal" in redis_url:
-                    # Internal connection may not work - check for external vars
-                    if redis_host and (".rlwy.net" in redis_host or ".railway.app" in redis_host):
-                        # Use external connection instead
+                    # Fallback: rebuild redis_url using external variables
+                    if redis_host and redis_port:
+                        # Rebuild URL: redis://{REDISUSER}:{REDISPASSWORD}@{REDISHOST}:{REDISPORT}/{REDIS_DB}
+                        password_part = f":{redis_password}@" if redis_password else ""
+                        redis_url = f"redis://{redis_user}{password_part}{redis_host}:{redis_port}/{redis_db}"
                         logger.warning(
-                            f"REDIS_URL uses redis.railway.internal which is not accessible. "
-                            f"Using external connection: {redis_host}"
+                            f"REDIS_URL contains redis.railway.internal (not accessible). "
+                            f"Rebuilt using external vars: {_safe_redis_log_target(redis_url)}"
                         )
-                        self.host = redis_host
-                        self.port = int(redis_port or 6379)
-                        self.password = redis_password or None
-                        self.db = int(os.getenv("REDIS_DB", 0))
-                        self.url = None
                     else:
-                        # Try internal connection anyway
-                        self.host = None
-                        self.port = None
-                        self.password = None
-                        self.db = 0
-                        self.url = redis_url
-                        logger.info(
-                            f"Using REDIS_URL (production mode): "
-                            f"{redis_url.split('@')[-1] if '@' in redis_url else 'URL-based'}"
+                        # Try internal connection anyway (may fail)
+                        logger.warning(
+                            f"REDIS_URL uses redis.railway.internal but external vars not available. "
+                            f"Attempting internal connection: {_safe_redis_log_target(redis_url)}"
                         )
-                else:
-                    # REDIS_URL uses external hostname - use it
-                    self.host = None
-                    self.port = None
-                    self.password = None
-                    self.db = 0
-                    self.url = redis_url
-                    logger.info(
-                        f"Using REDIS_URL (production mode): "
-                        f"{redis_url.split('@')[-1] if '@' in redis_url else 'URL-based'}"
-                    )
+                
+                # Use the URL (either original or rebuilt)
+                self.host = None
+                self.port = None
+                self.password = None
+                self.db = 0
+                self.url = redis_url
+                logger.info(
+                    f"Using REDIS_URL (production mode): {_safe_redis_log_target(redis_url)}"
+                )
             # Priority 2: Use separate variables if REDIS_URL is not available
             elif redis_host or redis_port or redis_password:
                 self.host = redis_host or "localhost"
                 self.port = int(redis_port or 6379)
                 self.password = redis_password or None
-                self.db = int(os.getenv("REDIS_DB", 0))
+                self.db = int(redis_db)
                 self.url = None
                 logger.info(
-                    f"Using separate Redis variables (production mode): "
-                    f"{self.host}:{self.port}"
+                    f"Using separate Redis variables (production mode): {self.host}:{self.port}"
                 )
                 # Only enable SSL for external Railway hosts (not internal)
                 if ".railway.app" in self.host or ".rlwy.net" in self.host:
@@ -170,8 +191,7 @@ class RedisConfig:
                 self.db = 0
                 self.url = redis_url
                 logger.info(
-                    f"Using REDIS_URL (development mode): "
-                    f"{redis_url.split('@')[-1] if '@' in redis_url else 'URL-based'}"
+                    f"Using REDIS_URL (development mode): {_safe_redis_log_target(redis_url)}"
                 )
             # Priority 2: Use separate variables if REDIS_URL is not available
             elif redis_host or redis_port or redis_password:
@@ -305,12 +325,12 @@ class RedisConnection:
                 
                 # Use redis.from_url() directly - it handles SSL automatically
                 # Similar to Node.js: redis.from_url(process.env.REDIS_URL)
-                logger.info(f"Connecting to Redis using URL: {redis_url.split('@')[-1] if '@' in redis_url else redis_url[:50]}...")
+                safe_target = _safe_redis_log_target(redis_url)
+                logger.info(f"Connecting to Redis: {safe_target}")
                 self._client = redis.from_url(redis_url, **pool_kwargs)
                 self._client.ping()
                 logger.info(
-                    f"✅ Redis connected: {self.config.environment} environment | "
-                    f"{redis_url.split('@')[-1] if '@' in redis_url else 'URL-based'}"
+                    f"✅ Redis connected: {self.config.environment} environment | {safe_target}"
                 )
             elif "connection_pool" not in kwargs:
                 # Create connection pool for separate host/port/password connections
