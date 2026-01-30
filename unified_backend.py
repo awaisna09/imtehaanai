@@ -657,18 +657,31 @@ class PathNormalizationMiddleware(BaseHTTPMiddleware):
     
     async def dispatch(self, request: StarletteRequest, call_next):
         # Normalize path: remove double slashes (but keep single leading slash)
-        if "//" in request.url.path:
+        original_path = request.url.path
+        if "//" in original_path:
             # Replace all double slashes with single slash
-            normalized_path = request.url.path.replace("//", "/")
+            normalized_path = original_path.replace("//", "/")
             # Ensure path starts with single slash
             if not normalized_path.startswith("/"):
                 normalized_path = "/" + normalized_path
             
-            # Create new request with normalized path
-            from starlette.datastructures import URL
-            new_url = request.url.replace(path=normalized_path)
+            # Update request scope with normalized path
+            # This must be done before route matching
             request.scope["path"] = normalized_path
             request.scope["raw_path"] = normalized_path.encode()
+            
+            # Also update the URL object for consistency
+            from starlette.datastructures import URL
+            # Reconstruct URL with normalized path
+            normalized_url = URL(
+                scheme=request.url.scheme,
+                netloc=request.url.netloc,
+                path=normalized_path,
+                query=request.url.query,
+                fragment=request.url.fragment
+            )
+            # Update the request's URL
+            request._url = normalized_url
         
         # Continue with normalized path
         return await call_next(request)
@@ -4712,6 +4725,12 @@ async def update_accuracy(user_id: str):
 
 
 # ===== STUDY PLANNER ENDPOINTS =====
+
+@app.options("/api/v1/study-plans")
+async def options_study_plans():
+    """Handle CORS preflight for study plans endpoint"""
+    from fastapi.responses import Response
+    return Response(status_code=200)
 
 @app.get("/api/v1/study-plans")
 async def get_study_plans(user_id: str = Query(..., description="User ID")):
