@@ -198,21 +198,17 @@ class RedisConfig:
             if self.host and (".railway.app" in self.host or ".rlwy.net" in self.host):
                 use_ssl = True
             
-            # If SSL is needed, use ConnectionPool with SSL context
+            # If SSL is needed, use SSLConnection class
             if use_ssl:
                 logger.info(
                     f"Using SSL for Redis connection to "
                     f"{self.host}:{self.port}"
                 )
 
-                # Create SSL context for Railway Redis
+                # Use ConnectionPool with SSLConnection class
+                # This is the correct way to enable SSL with ConnectionPool
                 # Railway Redis uses self-signed certificates,
-                # so we disable verification
-                ssl_context = ssl.create_default_context()
-                ssl_context.check_hostname = False
-                ssl_context.verify_mode = ssl.CERT_NONE
-
-                # Use ConnectionPool with SSL context for Railway Redis
+                # so we disable certificate verification
                 return {
                     "connection_pool": ConnectionPool(
                         host=self.host,
@@ -235,8 +231,8 @@ class RedisConfig:
                             if self.socket_keepalive_options
                             else None
                         ),
-                        ssl=True,
-                        ssl_cert_reqs=ssl.CERT_NONE,
+                        connection_class=redis.SSLConnection,
+                        ssl_cert_reqs="none",  # Disable cert verification
                     )
                 }
             
