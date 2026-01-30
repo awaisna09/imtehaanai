@@ -1,0 +1,1 @@
+worker: python workers/enhanced_worker.py
