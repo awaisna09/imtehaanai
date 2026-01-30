@@ -69,42 +69,59 @@ class RedisConfig:
             # Fall back to separate vars only if REDIS_URL is not available
             redis_url = os.getenv("REDIS_URL")
             
-            # Railway provides vars WITHOUT underscores - prioritize these first
+            # Railway provides vars WITHOUT underscores - ONLY use these (no fallback)
             # Format: REDISHOST, REDISPORT, REDISPASSWORD, REDISUSER
-            redis_host = os.getenv("REDISHOST") or os.getenv("REDIS_HOST")
-            redis_port = os.getenv("REDISPORT") or os.getenv("REDIS_PORT")
-            redis_password = os.getenv("REDISPASSWORD") or os.getenv("REDIS_PASSWORD")
-            redis_user = os.getenv("REDISUSER") or os.getenv("REDIS_USER") or "default"
+            redis_host = os.getenv("REDISHOST")
+            redis_port = os.getenv("REDISPORT")
+            redis_password = os.getenv("REDISPASSWORD")
+            redis_user = os.getenv("REDISUSER") or "default"
             redis_db = os.getenv("REDIS_DB", "0")
             
-            # Debug: Log which Railway vars exist (use info level so it's visible)
+            # Debug: Log which Railway vars exist and their values (safely, no secrets)
             logger.info(
-                f"Redis vars check - REDISHOST: {'✓' if os.getenv('REDISHOST') else '✗'}, "
-                f"REDISPORT: {'✓' if os.getenv('REDISPORT') else '✗'}, "
-                f"REDISPASSWORD: {'✓' if os.getenv('REDISPASSWORD') else '✗'}, "
-                f"REDISUSER: {'✓' if os.getenv('REDISUSER') else '✗'}"
+                f"Redis vars check - REDISHOST: {'✓' if redis_host else '✗'} "
+                f"({redis_host if redis_host else 'missing'}), "
+                f"REDISPORT: {'✓' if redis_port else '✗'} "
+                f"({redis_port if redis_port else 'missing'}), "
+                f"REDISPASSWORD: {'✓' if redis_password else '✗'}, "
+                f"REDISUSER: {'✓' if os.getenv('REDISUSER') else '✗'} "
+                f"({redis_user})"
             )
             
             # Priority 1: Use REDIS_URL if available
-            # If REDIS_URL uses redis.railway.internal, rebuild using external vars
+            # If REDIS_URL uses redis.railway.internal, rebuild using ONLY Railway vars
             if redis_url:
                 # Check if REDIS_URL uses internal hostname that's not accessible
                 if "redis.railway.internal" in redis_url:
-                    # Fallback: rebuild redis_url using external variables
-                    if redis_host and redis_port:
-                        # Rebuild URL: redis://{user}:{password}@{host}:{port}/{db}
-                        password_part = f":{redis_password}@" if redis_password else ""
-                        redis_url = f"redis://{redis_user}{password_part}{redis_host}:{redis_port}/{redis_db}"
-                        logger.warning(
+                    # Fallback: rebuild redis_url using ONLY Railway variables
+                    # ALL Railway vars must be present - no fallback to underscore versions
+                    if not redis_host or not redis_port:
+                        missing_vars = []
+                        if not redis_host:
+                            missing_vars.append("REDISHOST")
+                        if not redis_port:
+                            missing_vars.append("REDISPORT")
+                        if not redis_password:
+                            missing_vars.append("REDISPASSWORD")
+                        
+                        error_msg = (
                             f"REDIS_URL contains redis.railway.internal (not accessible). "
-                            f"Rebuilt using external vars: {_safe_redis_log_target(redis_url)}"
+                            f"Missing required Railway variables: {', '.join(missing_vars)}. "
+                            f"Please add backend variable references in Railway: "
+                            f"Go to your backend service → Variables → Add Reference → "
+                            f"Select Redis service → Choose {', '.join(missing_vars)}"
                         )
-                    else:
-                        # Try internal connection anyway (may fail)
-                        logger.warning(
-                            f"REDIS_URL uses redis.railway.internal but external vars not available. "
-                            f"Attempting internal connection: {_safe_redis_log_target(redis_url)}"
-                        )
+                        logger.error(error_msg)
+                        raise RuntimeError(error_msg)
+                    
+                    # Rebuild URL: redis://{user}:{password}@{host}:{port}/{db}
+                    # Using ONLY Railway vars (REDISHOST, REDISPORT, REDISPASSWORD, REDISUSER)
+                    password_part = f":{redis_password}@" if redis_password else ""
+                    redis_url = f"redis://{redis_user}{password_part}{redis_host}:{redis_port}/{redis_db}"
+                    logger.warning(
+                        f"REDIS_URL contains redis.railway.internal (not accessible). "
+                        f"Rebuilt using Railway vars: {_safe_redis_log_target(redis_url)}"
+                    )
                 
                 # Use the URL (either original or rebuilt)
                 self.host = None
