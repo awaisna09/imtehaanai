@@ -428,6 +428,16 @@ def get_tutor_services():
 async def lifespan(app: FastAPI):
     """Lifespan event handler for startup and shutdown"""
 
+    # Startup: Redis ping test
+    try:
+        from services.redis_connection import get_redis_client
+        r = get_redis_client()
+        r.ping()
+        print("✅ Redis PING successful")
+    except Exception as e:
+        print(f"⚠️ Redis PING failed: {e}")
+        # Don't fail startup - let the app continue, but log the warning
+
     # Startup: Verify Redis is available (REQUIRED)
     if ENABLE_DEBUG:
         print("[STARTUP] Initializing API server...")
