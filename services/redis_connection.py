@@ -197,6 +197,37 @@ class RedisConfig:
             if self.host and (".railway.app" in self.host or ".rlwy.net" in self.host):
                 use_ssl = True
             
+            # If SSL is needed, construct rediss:// URL instead of using separate params
+            if use_ssl:
+                # Construct rediss:// URL for SSL connections
+                # Format: rediss://:password@host:port/db
+                password_part = f":{self.password}@" if self.password else ""
+                redis_url = f"rediss://{password_part}{self.host}:{self.port}/{self.db}"
+                
+                logger.info(
+                    f"Using SSL (rediss://) for Redis connection to {self.host}:{self.port}"
+                )
+                
+                # Use URL-based connection with rediss:// (SSL enabled)
+                return {
+                    "connection_pool": ConnectionPool.from_url(
+                        redis_url,
+                        max_connections=self.max_connections,
+                        socket_connect_timeout=self.socket_connect_timeout,
+                        socket_timeout=self.socket_timeout,
+                        health_check_interval=self.health_check_interval,
+                        retry_on_timeout=self.retry_on_timeout,
+                        decode_responses=self.decode_responses,
+                        socket_keepalive=self.socket_keepalive,
+                        socket_keepalive_options=(
+                            self.socket_keepalive_options
+                            if self.socket_keepalive_options
+                            else None
+                        ),
+                    )
+                }
+            
+            # Non-SSL connection using separate parameters
             connection_params = {
                 "host": self.host,
                 "port": self.port,
@@ -210,14 +241,6 @@ class RedisConfig:
                 "decode_responses": self.decode_responses,
                 "socket_keepalive": self.socket_keepalive,
             }
-            
-            # Add SSL if needed
-            if use_ssl:
-                connection_params["ssl"] = True
-                connection_params["ssl_cert_reqs"] = "none"  # Railway uses self-signed certs
-                logger.info(
-                    f"Using SSL for Redis connection to {self.host}:{self.port}"
-                )
             
             # Add keepalive options if available
             if self.socket_keepalive_options:
