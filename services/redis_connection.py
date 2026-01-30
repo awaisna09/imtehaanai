@@ -289,6 +289,8 @@ class RedisConfig:
         if self.url:
             # Use redis.from_url() for URL-based connections
             # This handles both redis:// and rediss:// URLs properly
+            # Do NOT pass socket_keepalive_options - can trigger Error 22
+            # Keep only socket_keepalive=True, no keepalive options dict
             return {
                 "redis_url": self.url,
                 "max_connections": self.max_connections,
@@ -298,11 +300,7 @@ class RedisConfig:
                 "retry_on_timeout": self.retry_on_timeout,
                 "decode_responses": self.decode_responses,
                 "socket_keepalive": self.socket_keepalive,
-                "socket_keepalive_options": (
-                    self.socket_keepalive_options
-                    if self.socket_keepalive_options
-                    else None
-                ),
+                # socket_keepalive_options removed - can trigger Error 22 in containers
             }
         else:
             # For Railway Redis, try simple redis:// URL first (no SSL)
@@ -312,6 +310,8 @@ class RedisConfig:
             redis_url = f"redis://{password_part}{self.host}:{self.port}/{self.db}"
             
             # Return URL to use with redis.from_url() - try non-SSL first
+            # Do NOT pass socket_keepalive_options - can trigger Error 22
+            # Keep only socket_keepalive=True, no keepalive options dict
             return {
                 "redis_url": redis_url,
                 "max_connections": self.max_connections,
@@ -321,12 +321,60 @@ class RedisConfig:
                 "retry_on_timeout": self.retry_on_timeout,
                 "decode_responses": self.decode_responses,
                 "socket_keepalive": self.socket_keepalive,
-                "socket_keepalive_options": (
-                    self.socket_keepalive_options
-                    if self.socket_keepalive_options
-                    else None
-                ),
+                # socket_keepalive_options removed - can trigger Error 22 in containers
             }
+
+
+def connect_redis_with_fallback(pool_kwargs: dict) -> redis.Redis:
+    """
+    Connect to Redis with fallback: Try internal URL first, then public TLS URL.
+    
+    Args:
+        pool_kwargs: Connection pool parameters
+        
+    Returns:
+        redis.Redis: Connected Redis client
+        
+    Raises:
+        RuntimeError: If both internal and public connections fail
+    """
+    internal_url = os.getenv("REDIS_URL")
+    public_url = os.getenv("REDIS_PUBLIC_URL")
+
+    def safe_host(url: str) -> str:
+        """Safely extract host from URL for logging (no password)"""
+        return url.split("@")[-1] if url and "@" in url else (url or "MISSING")
+
+    # 1) Try internal first
+    if internal_url:
+        try:
+            logger.info("Trying Redis INTERNAL: %s", safe_host(internal_url))
+            r = redis.from_url(internal_url, **pool_kwargs)
+            r.ping()
+            logger.info("✅ Redis connected (INTERNAL): %s", safe_host(internal_url))
+            return r
+        except Exception as e:
+            logger.warning("⚠️ Redis INTERNAL failed (%s). Will try PUBLIC TLS.", str(e))
+
+    # 2) Fall back to public (force TLS)
+    if not public_url:
+        raise RuntimeError(
+            "Redis internal failed and REDIS_PUBLIC_URL is not set in backend variables."
+        )
+
+    # Force TLS scheme
+    tls_url = public_url.replace("redis://", "rediss://", 1)
+
+    logger.info("Trying Redis PUBLIC TLS: %s", safe_host(tls_url))
+    r = redis.from_url(
+        tls_url,
+        ssl=True,
+        ssl_cert_reqs=None,  # managed cert, simplest; tighten later if you want
+        **pool_kwargs
+    )
+    r.ping()
+    logger.info("✅ Redis connected (PUBLIC TLS): %s", safe_host(tls_url))
+    return r
 
 
 class RedisConnection:
@@ -351,10 +399,8 @@ class RedisConnection:
         try:
             kwargs = self.config.get_connection_kwargs()
             
-            # If redis_url is provided, use it directly (like Node.js examples)
-            # redis-py automatically handles redis:// and rediss:// URLs
+            # If redis_url is provided, use fallback connection function
             if "redis_url" in kwargs:
-                redis_url = kwargs.pop("redis_url")
                 # Extract connection pool parameters
                 pool_kwargs = {
                     "max_connections": kwargs.pop("max_connections", 100),
@@ -368,27 +414,16 @@ class RedisConnection:
                     "retry_on_timeout": kwargs.pop("retry_on_timeout", True),
                     "decode_responses": kwargs.pop("decode_responses", True),
                     "socket_keepalive": kwargs.pop("socket_keepalive", True),
-                    "socket_keepalive_options": kwargs.pop(
-                        "socket_keepalive_options", None
-                    ),
+                    # Do NOT pass socket_keepalive_options - can trigger Error 22
+                    # Keep only socket_keepalive=True, no keepalive options dict
                 }
                 # Remove None values
                 pool_kwargs = {
                     k: v for k, v in pool_kwargs.items() if v is not None
                 }
                 
-                # Use redis.from_url() directly - it handles SSL automatically
-                # Similar to Node.js: redis.from_url(process.env.REDIS_URL)
-                safe_target = _safe_redis_log_target(redis_url)
-                logger.info(f"Connecting to Redis: {safe_target}")
-                # Debug: Log final URL being used (safely, no password)
-                logger.debug(f"Final Redis URL target: {safe_target}")
-                # Ensure pool_kwargs has no None values before passing to redis.from_url
-                self._client = redis.from_url(redis_url, **pool_kwargs)
-                self._client.ping()
-                logger.info(
-                    f"✅ Redis connected: {self.config.environment} environment | {safe_target}"
-                )
+                # Use fallback connection function: tries internal first, then public TLS
+                self._client = connect_redis_with_fallback(pool_kwargs)
             elif "connection_pool" not in kwargs:
                 # Create connection pool for separate host/port/password connections
                 self._pool = ConnectionPool(**kwargs)
