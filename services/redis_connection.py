@@ -247,29 +247,29 @@ class RedisConfig:
                 else:
                     use_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
             
-            # If SSL is needed, use redis.Redis() with SSL parameters
+            # If SSL is needed, construct rediss:// URL and use redis.from_url()
             if use_ssl:
                 logger.info(
-                    f"Using SSL for Redis connection to "
+                    f"Using SSL (rediss://) for Redis connection to "
                     f"{self.host}:{self.port}"
                 )
 
-                # Use redis.Redis() directly with SSL parameters
+                # Construct rediss:// URL for SSL connections
+                # Format: rediss://:password@host:port/db?ssl_cert_reqs=none
                 # Railway Redis uses self-signed certificates
-                # ssl_cert_reqs="none" (string) disables certificate verification
+                password_part = f":{self.password}@" if self.password else ""
+                redis_url = (
+                    f"rediss://{password_part}{self.host}:{self.port}/"
+                    f"{self.db}?ssl_cert_reqs=none"
+                )
+
+                # Return URL to use with redis.from_url() in _initialize_connection
                 return {
-                    "host": self.host,
-                    "port": self.port,
-                    "password": self.password,
-                    "db": self.db,
-                    "socket_connect_timeout": (
-                        self.socket_connect_timeout
-                    ),
-                    "socket_timeout": self.socket_timeout,
-                    "health_check_interval": (
-                        self.health_check_interval
-                    ),
+                    "redis_url": redis_url,
                     "max_connections": self.max_connections,
+                    "socket_connect_timeout": self.socket_connect_timeout,
+                    "socket_timeout": self.socket_timeout,
+                    "health_check_interval": self.health_check_interval,
                     "retry_on_timeout": self.retry_on_timeout,
                     "decode_responses": self.decode_responses,
                     "socket_keepalive": self.socket_keepalive,
@@ -278,8 +278,6 @@ class RedisConfig:
                         if self.socket_keepalive_options
                         else None
                     ),
-                    "ssl": True,
-                    "ssl_cert_reqs": "none",  # String, not constant
                 }
             
             # Non-SSL connection using separate parameters
@@ -328,18 +326,32 @@ class RedisConnection:
         try:
             kwargs = self.config.get_connection_kwargs()
             
-            # If SSL is enabled, create Redis client directly
-            # (ConnectionPool doesn't support ssl=True parameter)
-            if "connection_pool" not in kwargs and kwargs.get("ssl"):
-                # Extract SSL parameters
-                ssl_params = {
-                    "ssl": kwargs.pop("ssl"),
-                    "ssl_cert_reqs": kwargs.pop("ssl_cert_reqs", None),
+            # If redis_url is provided (for SSL connections), use redis.from_url()
+            if "redis_url" in kwargs:
+                redis_url = kwargs.pop("redis_url")
+                # Extract connection pool parameters
+                pool_kwargs = {
+                    "max_connections": kwargs.pop("max_connections", 100),
+                    "socket_connect_timeout": kwargs.pop(
+                        "socket_connect_timeout", 10
+                    ),
+                    "socket_timeout": kwargs.pop("socket_timeout", 30),
+                    "health_check_interval": kwargs.pop(
+                        "health_check_interval", 30
+                    ),
+                    "retry_on_timeout": kwargs.pop("retry_on_timeout", True),
+                    "decode_responses": kwargs.pop("decode_responses", True),
+                    "socket_keepalive": kwargs.pop("socket_keepalive", True),
+                    "socket_keepalive_options": kwargs.pop(
+                        "socket_keepalive_options", None
+                    ),
                 }
                 # Remove None values
-                ssl_params = {k: v for k, v in ssl_params.items() if v is not None}
-                # Create Redis client directly with SSL
-                self._client = redis.Redis(**kwargs, **ssl_params)
+                pool_kwargs = {
+                    k: v for k, v in pool_kwargs.items() if v is not None
+                }
+                # Use redis.from_url() which handles SSL properly
+                self._client = redis.from_url(redis_url, **pool_kwargs)
             elif "connection_pool" not in kwargs:
                 # Create connection pool for non-SSL connections
                 self._pool = ConnectionPool(**kwargs)
