@@ -42,18 +42,46 @@ class RedisConfig:
             redis_port = os.getenv("REDIS_PORT")
             redis_password = os.getenv("REDIS_PASSWORD")
             
-            # Priority 1: Use REDIS_URL if available (Railway provides this)
-            # Since backend and Redis are in same project, internal connection should work
+            # Priority 1: Use REDIS_URL if available
+            # If REDIS_URL uses redis.railway.internal and it's not working,
+            # check if we have external connection variables to use instead
             if redis_url:
-                self.host = None
-                self.port = None
-                self.password = None
-                self.db = 0
-                self.url = redis_url
-                logger.info(
-                    f"Using REDIS_URL (production mode): "
-                    f"{redis_url.split('@')[-1] if '@' in redis_url else 'URL-based'}"
-                )
+                # Check if REDIS_URL uses internal hostname that's not accessible
+                if "redis.railway.internal" in redis_url:
+                    # Internal connection may not work - check for external vars
+                    if redis_host and (".rlwy.net" in redis_host or ".railway.app" in redis_host):
+                        # Use external connection instead
+                        logger.warning(
+                            f"REDIS_URL uses redis.railway.internal which is not accessible. "
+                            f"Using external connection: {redis_host}"
+                        )
+                        self.host = redis_host
+                        self.port = int(redis_port or 6379)
+                        self.password = redis_password or None
+                        self.db = int(os.getenv("REDIS_DB", 0))
+                        self.url = None
+                    else:
+                        # Try internal connection anyway
+                        self.host = None
+                        self.port = None
+                        self.password = None
+                        self.db = 0
+                        self.url = redis_url
+                        logger.info(
+                            f"Using REDIS_URL (production mode): "
+                            f"{redis_url.split('@')[-1] if '@' in redis_url else 'URL-based'}"
+                        )
+                else:
+                    # REDIS_URL uses external hostname - use it
+                    self.host = None
+                    self.port = None
+                    self.password = None
+                    self.db = 0
+                    self.url = redis_url
+                    logger.info(
+                        f"Using REDIS_URL (production mode): "
+                        f"{redis_url.split('@')[-1] if '@' in redis_url else 'URL-based'}"
+                    )
             # Priority 2: Use separate variables if REDIS_URL is not available
             elif redis_host or redis_port or redis_password:
                 self.host = redis_host or "localhost"
