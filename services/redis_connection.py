@@ -277,7 +277,8 @@ class RedisConnection:
         try:
             kwargs = self.config.get_connection_kwargs()
             
-            # If redis_url is provided, try non-SSL first, then SSL if needed
+            # If redis_url is provided, use it directly (like Node.js examples)
+            # redis-py automatically handles redis:// and rediss:// URLs
             if "redis_url" in kwargs:
                 redis_url = kwargs.pop("redis_url")
                 # Extract connection pool parameters
@@ -302,42 +303,17 @@ class RedisConnection:
                     k: v for k, v in pool_kwargs.items() if v is not None
                 }
                 
-                # Try non-SSL connection first (redis://)
-                try:
-                    logger.info(f"Attempting Redis connection (no SSL): {redis_url[:50]}...")
-                    self._client = redis.from_url(redis_url, **pool_kwargs)
-                    self._client.ping()
-                    logger.info(
-                        f"✅ Redis connected (no SSL): {self.config.environment} environment | "
-                        f"{self.config.host or 'URL-based'}:"
-                        f"{self.config.port or 'N/A'}"
-                    )
-                except (redis.ConnectionError, OSError, Exception) as e:
-                    # If non-SSL fails, try with SSL (rediss://)
-                    logger.warning(
-                        f"Non-SSL connection failed: {e}. Trying with SSL (rediss://)..."
-                    )
-                    # Convert redis:// to rediss:// for SSL
-                    ssl_url = redis_url.replace("redis://", "rediss://")
-                    # Add SSL certificate requirements
-                    if "?" in ssl_url:
-                        ssl_url += "&ssl_cert_reqs=none"
-                    else:
-                        ssl_url += "?ssl_cert_reqs=none"
-                    
-                    try:
-                        self._client = redis.from_url(ssl_url, **pool_kwargs)
-                        self._client.ping()
-                        logger.info(
-                            f"✅ Redis connected (with SSL): {self.config.environment} environment | "
-                            f"{self.config.host or 'URL-based'}:"
-                            f"{self.config.port or 'N/A'}"
-                        )
-                    except Exception as ssl_error:
-                        logger.error(f"❌ SSL connection also failed: {ssl_error}")
-                        raise
+                # Use redis.from_url() directly - it handles SSL automatically
+                # Similar to Node.js: redis.from_url(process.env.REDIS_URL)
+                logger.info(f"Connecting to Redis using URL: {redis_url.split('@')[-1] if '@' in redis_url else redis_url[:50]}...")
+                self._client = redis.from_url(redis_url, **pool_kwargs)
+                self._client.ping()
+                logger.info(
+                    f"✅ Redis connected: {self.config.environment} environment | "
+                    f"{redis_url.split('@')[-1] if '@' in redis_url else 'URL-based'}"
+                )
             elif "connection_pool" not in kwargs:
-                # Create connection pool for non-SSL connections
+                # Create connection pool for separate host/port/password connections
                 self._pool = ConnectionPool(**kwargs)
                 kwargs = {"connection_pool": self._pool}
                 self._client = redis.Redis(**kwargs)
