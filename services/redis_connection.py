@@ -122,6 +122,11 @@ class RedisConfig:
                         f"REDIS_URL contains redis.railway.internal (not accessible). "
                         f"Rebuilt using Railway vars: {_safe_redis_log_target(redis_url)}"
                     )
+                    # Safe debug: Log which host/port/user is being used (no password)
+                    logger.info(
+                        f"Using Railway vars - REDISHOST: {redis_host}, "
+                        f"REDISPORT: {redis_port}, REDISUSER: {redis_user}"
+                    )
                 
                 # Use the URL (either original or rebuilt)
                 self.host = None
@@ -169,11 +174,8 @@ class RedisConfig:
             self.retry_on_timeout = True
             self.decode_responses = True
             self.socket_keepalive = True
-            self.socket_keepalive_options = {
-                1: 1,  # TCP_KEEPIDLE
-                2: 10,  # TCP_KEEPINTVL
-                3: 3,   # TCP_KEEPCNT
-            }
+            # Set to None to avoid OS-specific TCP options that cause Error 22 in containers
+            self.socket_keepalive_options = None
             
         elif self.environment == Environment.STAGING:
             # Staging: Similar to production but with relaxed timeouts
@@ -355,6 +357,9 @@ class RedisConnection:
                 # Similar to Node.js: redis.from_url(process.env.REDIS_URL)
                 safe_target = _safe_redis_log_target(redis_url)
                 logger.info(f"Connecting to Redis: {safe_target}")
+                # Debug: Log final URL being used (safely, no password)
+                logger.debug(f"Final Redis URL target: {safe_target}")
+                # Ensure pool_kwargs has no None values before passing to redis.from_url
                 self._client = redis.from_url(redis_url, **pool_kwargs)
                 self._client.ping()
                 logger.info(
