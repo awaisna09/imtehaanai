@@ -198,23 +198,29 @@ class RedisConfig:
             if self.host and (".railway.app" in self.host or ".rlwy.net" in self.host):
                 use_ssl = True
             
-            # If SSL is needed, use SSLConnection class
+            # If SSL is needed, construct rediss:// URL
             if use_ssl:
                 logger.info(
-                    f"Using SSL for Redis connection to "
+                    f"Using SSL (rediss://) for Redis connection to "
                     f"{self.host}:{self.port}"
                 )
 
-                # Use ConnectionPool with SSLConnection class
-                # This is the correct way to enable SSL with ConnectionPool
-                # Railway Redis uses self-signed certificates,
-                # so we disable certificate verification
+                # Construct rediss:// URL for SSL connections
+                # Format: rediss://:password@host:port/db?ssl_cert_reqs=none
+                # Railway Redis uses self-signed certificates
+                password_part = f":{self.password}@" if self.password else ""
+                # Add ssl_cert_reqs=none to URL to disable cert verification
+                redis_url = (
+                    f"rediss://{password_part}{self.host}:{self.port}/"
+                    f"{self.db}?ssl_cert_reqs=none"
+                )
+
+                # Use ConnectionPool.from_url with rediss:// URL
+                # rediss:// automatically enables SSL
+                # ssl_cert_reqs=none in URL disables certificate verification
                 return {
-                    "connection_pool": ConnectionPool(
-                        host=self.host,
-                        port=self.port,
-                        password=self.password,
-                        db=self.db,
+                    "connection_pool": ConnectionPool.from_url(
+                        redis_url,
                         max_connections=self.max_connections,
                         socket_connect_timeout=(
                             self.socket_connect_timeout
@@ -231,8 +237,6 @@ class RedisConfig:
                             if self.socket_keepalive_options
                             else None
                         ),
-                        connection_class=redis.SSLConnection,
-                        ssl_cert_reqs="none",  # Disable cert verification
                     )
                 }
             
