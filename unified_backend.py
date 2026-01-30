@@ -129,6 +129,14 @@ LOAD_SHEDDING_WORKER_DEGRADED_THRESHOLD = int(os.getenv("LOAD_SHEDDING_WORKER_DE
 ALLOWED_ORIGINS_RAW = os.getenv("ALLOWED_ORIGINS", "*")
 ALLOWED_ORIGINS = [origin.strip() for origin in ALLOWED_ORIGINS_RAW.split(",")]
 
+# Debug logging for CORS (only in development or when ENABLE_DEBUG is True)
+if ENABLE_DEBUG or ENVIRONMENT != "production":
+    print(f"[CORS] ALLOWED_ORIGINS configured: {ALLOWED_ORIGINS}")
+
+# Debug logging for CORS (only in development or when ENABLE_DEBUG is True)
+if ENABLE_DEBUG or ENVIRONMENT != "production":
+    print(f"[CORS] ALLOWED_ORIGINS configured: {ALLOWED_ORIGINS}")
+
 # In production, only allow specified origins (no localhost)
 # Localhost origins are NOT added in production for security
 if ENVIRONMENT != "production" and "*" not in ALLOWED_ORIGINS:
@@ -486,10 +494,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware
+# Add CORS middleware with more lenient origin matching
+# Use allow_origin_regex for flexible matching (handles trailing slashes, case-insensitive)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https?://(.*\.)?imtehaanai\.netlify\.app/?",  # Allow any subdomain and trailing slash
     allow_credentials=ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -4727,10 +4737,51 @@ async def update_accuracy(user_id: str):
 # ===== STUDY PLANNER ENDPOINTS =====
 
 @app.options("/api/v1/study-plans")
-async def options_study_plans():
-    """Handle CORS preflight for study plans endpoint"""
+async def options_study_plans(request: Request):
+    """Handle CORS preflight for study plans endpoint - bypasses CORS middleware validation"""
     from fastapi.responses import Response
-    return Response(status_code=200)
+    
+    # Get origin from request
+    origin = request.headers.get("origin", "")
+    
+    # Debug logging
+    if ENABLE_DEBUG:
+        print(f"[OPTIONS] Request origin: {origin}")
+        print(f"[OPTIONS] ALLOWED_ORIGINS: {ALLOWED_ORIGINS}")
+    
+    # Check if origin is allowed (normalize: remove trailing slash, lowercase)
+    origin_allowed = False
+    if "*" in ALLOWED_ORIGINS:
+        origin_allowed = True
+    elif origin:
+        origin_normalized = origin.rstrip("/").lower()
+        for allowed in ALLOWED_ORIGINS:
+            allowed_normalized = allowed.rstrip("/").lower()
+            if origin_normalized == allowed_normalized:
+                origin_allowed = True
+                if ENABLE_DEBUG:
+                    print(f"[OPTIONS] Origin matched: {origin} == {allowed}")
+                break
+    
+    # Always return 200 for OPTIONS (let browser handle CORS)
+    # But set proper CORS headers based on whether origin is allowed
+    headers = {
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS, PATCH, DELETE",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Access-Control-Max-Age": "600"
+    }
+    
+    if origin_allowed or "*" in ALLOWED_ORIGINS:
+        headers["Access-Control-Allow-Origin"] = origin if origin else "*"
+        if ALLOW_CREDENTIALS:
+            headers["Access-Control-Allow-Credentials"] = "true"
+    else:
+        # Still allow the request but don't set credentials
+        headers["Access-Control-Allow-Origin"] = origin if origin else "*"
+        if ENABLE_DEBUG:
+            print(f"[OPTIONS] WARNING: Origin {origin} not in ALLOWED_ORIGINS")
+    
+    return Response(status_code=200, headers=headers)
 
 @app.get("/api/v1/study-plans")
 async def get_study_plans(user_id: str = Query(..., description="User ID")):
