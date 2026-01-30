@@ -1,0 +1,332 @@
+# =============================================================================
+# FIXED ENVIRONMENT VARIABLES FOR RAILWAY (WITH REDIS FIX)
+# =============================================================================
+# If REDIS_URL doesn't work, use the separate variables below instead
+# Remove REDIS_URL and use REDIS_HOST, REDIS_PORT, REDIS_PASSWORD
+# =============================================================================
+
+# =============================================================================
+# REQUIRED: CORE INFRASTRUCTURE
+# =============================================================================
+OPENAI_API_KEY=your_openai_api_key_here
+SUPABASE_URL=https://bgenvwieabtxwzapgeee.supabase.co
+SUPABASE_ANON_KEY=your_supabase_anon_key_here
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
+ALLOW_PROD_SUPABASE_IN_DEV=false
+
+# =============================================================================
+# REDIS CONFIGURATION - OPTION 1: Use REDIS_URL (Preferred)
+# =============================================================================
+# Get this from Railway Redis service → Variables → REDIS_URL
+# If this doesn't work, use Option 2 below (separate variables)
+REDIS_URL=redis://default:BpymepesTceqpFGWXfQxwbJpaqXbqldH@switchyard.proxy.rlwy.net:19437
+
+# =============================================================================
+# REDIS CONFIGURATION - OPTION 2: Use Separate Variables (If URL doesn't work)
+# =============================================================================
+# If REDIS_URL causes errors, REMOVE it and use these instead:
+# REDIS_HOST=switchyard.proxy.rlwy.net
+# REDIS_PORT=19437
+# REDIS_PASSWORD=BpymepesTceqpFGWXfQxwbJpaqXbqldH
+# REDIS_DB=0
+# IMPORTANT: Set ENVIRONMENT=development when using separate variables
+# (Production mode requires REDIS_URL)
+
+# =============================================================================
+# ENVIRONMENT IDENTIFICATION
+# =============================================================================
+ENVIRONMENT=production
+
+# =============================================================================
+# API SERVER CONFIGURATION
+# =============================================================================
+API_HOST=0.0.0.0
+API_PORT=8000
+
+# =============================================================================
+# CORS CONFIGURATION (PRODUCTION)
+# =============================================================================
+ALLOWED_ORIGINS=https://imtehaanai.netlify.app,https://imtehaanai.netlify.app/*
+ALLOW_CREDENTIALS=true
+
+# =============================================================================
+# SYSTEM SAFETY GATE CONFIGURATION
+# =============================================================================
+SAFETY_GATE_ENABLED=true
+SAFETY_GATE_QUEUE_THRESHOLD=0.9
+SAFETY_GATE_MEMORY_THRESHOLD_MB=400
+SAFETY_GATE_MEMORY_PERCENT_THRESHOLD=80
+SAFETY_GATE_MIN_HEALTHY_WORKERS=2
+
+# =============================================================================
+# PRODUCTION-GRADE UVICORN CONFIGURATION
+# =============================================================================
+UVICORN_TIMEOUT_KEEP_ALIVE=30
+UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN=10
+UVICORN_LIMIT_CONCURRENCY=1000
+UVICORN_BACKLOG=2048
+UVICORN_WORKERS=1
+REQUEST_TIMEOUT=5
+
+# =============================================================================
+# LOAD SHEDDING CONFIGURATION
+# =============================================================================
+LOAD_SHEDDING_ENABLED=true
+LOAD_SHEDDING_QUEUE_THRESHOLD=0.9
+LOAD_SHEDDING_WORKER_DEGRADED_THRESHOLD=2
+
+# =============================================================================
+# AI MODEL CONFIGURATION
+# =============================================================================
+TUTOR_MODEL=gpt-4o-mini
+TUTOR_TEMPERATURE=1.0
+TUTOR_MAX_TOKENS=2000
+GRADING_MODEL=gpt-4o-mini
+GRADING_TEMPERATURE=0.1
+GRADING_MAX_TOKENS=2000
+HELPING_MODEL=gpt-4o-mini
+HELPING_TEMPERATURE=0.3
+HELPING_MAX_TOKENS=150
+HELPING_ENABLE_MODEL_SELECTION=true
+HELPING_FAST_MODEL=gpt-3.5-turbo
+HELPING_MIN_CONFIDENCE_FAST=0.7
+
+# =============================================================================
+# OBSERVABILITY AND LOGGING
+# =============================================================================
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+ENABLE_DEBUG=false
+LANGSMITH_TRACING=false
+LANGSMITH_API_KEY=
+LANGSMITH_PROJECT=imtehaan-ai-tutor
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+
+# =============================================================================
+# REDIS CONNECTION RETRY CONFIGURATION
+# =============================================================================
+REDIS_RETRY_BASE_DELAY=2.0
+REDIS_RETRY_MAX_DELAY=60.0
+REDIS_RETRY_MAX_ATTEMPTS=0
+REDIS_HEALTH_CHECK_INTERVAL=10
+
+# =============================================================================
+# REDIS-BACKED JOB QUEUE CONFIGURATION
+# =============================================================================
+JOB_RESULT_TTL=86400
+MAX_RETRIES=3
+RETRY_DELAY=60
+RETRY_EXPONENTIAL_BACKOFF=true
+MAX_RETRY_DELAY=600
+JOB_TIMEOUT=3600
+JOB_TIMEOUT_TUTOR_CHAT=300
+JOB_TIMEOUT_WARNING=1800
+STRICT_TIMEOUT_ENFORCEMENT=true
+ENABLE_IDEMPOTENCY=true
+IDEMPOTENCY_WINDOW=3600
+
+# =============================================================================
+# BACK-PRESSURE MECHANISMS
+# =============================================================================
+MAX_QUEUE_SIZE=10000
+QUEUE_FULL_POLICY=reject
+QUEUE_BACK_PRESSURE_THRESHOLD=0.8
+QUEUE_BACK_PRESSURE_DELAY=1.0
+
+# =============================================================================
+# WORKER CONFIGURATION
+# =============================================================================
+WORKER_POLL_TIMEOUT=5
+WORKER_CONCURRENCY=3
+MAX_DB_CONNECTIONS=5
+WORKER_MAX_JOBS_PER_LOOP=1
+
+# =============================================================================
+# DATABASE LOAD SAFETY: OPERATION TIMEOUTS & RETRIES
+# =============================================================================
+DB_OPERATION_TIMEOUT=30.0
+DB_MAX_RETRIES=3
+DB_RETRY_BASE_DELAY=1.0
+DB_RETRY_MAX_DELAY=10.0
+
+# =============================================================================
+# DATABASE LOAD SAFETY: QUERY PAGINATION
+# =============================================================================
+DB_MAX_PAGE_SIZE=50
+DB_ABSOLUTE_MAX_PAGE_SIZE=1000
+
+# =============================================================================
+# DATABASE LOAD SAFETY: WORKER THROTTLING & BACKPRESSURE
+# =============================================================================
+WORKER_DB_ERROR_THRESHOLD=5
+WORKER_DB_ERROR_PAUSE_MIN=30
+WORKER_DB_ERROR_PAUSE_MAX=60
+
+# =============================================================================
+# DATABASE LOAD SAFETY: PER-JOB-TYPE RATE LIMITS
+# =============================================================================
+WORKER_RATE_LIMIT_GRADING=10
+WORKER_RATE_LIMIT_ANALYTICS=5
+WORKER_RATE_LIMIT_GENERATION=3
+WORKER_RATE_LIMIT_ROLLUP=20
+
+# =============================================================================
+# SUPABASE REQUEST BUDGET + BACKPRESSURE
+# =============================================================================
+SUPABASE_BUDGET_ENABLED=true
+SUPABASE_BUDGET_SATURATION_THRESHOLD=0.9
+SUPABASE_BUDGET_RETRY_AFTER_SECONDS=5
+
+# =============================================================================
+# MOCK EXAM GRADING SAFETY
+# =============================================================================
+ENABLE_MOCK_EXAM_GRADING=true
+MOCK_EXAM_BATCH_INSERT_SIZE=15
+MOCK_EXAM_BATCH_INSERT_DELAY=0.5
+
+# =============================================================================
+# JOB KILL SWITCHES (Heavy Background Jobs)
+# =============================================================================
+DISABLE_EMBEDDING_PREGEN=false
+DISABLE_BULK_BACKFILLS=false
+DISABLE_ANALYTICS_REBUILD=false
+DISABLED_JOB_RETRY_DELAY=3600
+
+# =============================================================================
+# BATCHED TIME TRACKING
+# =============================================================================
+VITE_TIME_TRACKING_BATCH_INTERVAL=90
+VITE_DASHBOARD_TOTALS_REFRESH_INTERVAL=90
+
+# =============================================================================
+# MIGRATION GUARD
+# =============================================================================
+MIGRATION_GUARD_ENABLED=true
+MIGRATION_PEAK_HOUR_START=9
+MIGRATION_PEAK_HOUR_END=21
+MIGRATION_COOLDOWN_HOURS=6
+
+# =============================================================================
+# HEALTH MONITORING AND GRACEFUL DEGRADATION
+# =============================================================================
+HEALTH_CHECK_INTERVAL=30
+WORKER_HEALTH_TTL=60
+WORKER_HEALTH_UPDATE_INTERVAL=30
+MAX_CONSECUTIVE_FAILURES=10
+CIRCUIT_BREAKER_RESET_TIME=300
+ENABLE_GRACEFUL_DEGRADATION=true
+DEGRADATION_MODE_THRESHOLD=5
+
+# =============================================================================
+# BATCH PARALLELIZATION CONCURRENCY MULTIPLIERS
+# =============================================================================
+BATCH_MASTERY_UPDATE_CONCURRENCY_MULTIPLIER=2.0
+BATCH_CONCEPT_PROCESSING_CONCURRENCY_MULTIPLIER=2.0
+BATCH_DEFAULT_CONCURRENCY_MULTIPLIER=1.5
+
+# =============================================================================
+# WORKLOAD ISOLATION: JOB-TYPE SPECIFIC CONCURRENCY LIMITS
+# =============================================================================
+JOB_CONCURRENCY_TUTOR_CHAT=2
+JOB_CONCURRENCY_GRADE_ANSWER=4
+JOB_CONCURRENCY_GRADE_MOCK_EXAM=1
+JOB_CONCURRENCY_EXPLAIN_CONCEPT=5
+JOB_CONCURRENCY_CREATE_LESSON=3
+JOB_CONCURRENCY_UPDATE_MASTERY=4
+
+# =============================================================================
+# SUPABASE CIRCUIT BREAKER CONFIGURATION
+# =============================================================================
+SUPABASE_CIRCUIT_BREAKER_ENABLED=true
+SUPABASE_CIRCUIT_BREAKER_THRESHOLD=5
+SUPABASE_CIRCUIT_BREAKER_TIME_WINDOW=60
+SUPABASE_CIRCUIT_BREAKER_COOLDOWN=60
+
+# =============================================================================
+# DATABASE LOAD SAFETY: CONCURRENCY LIMITS
+# =============================================================================
+SUPABASE_MAX_CONCURRENCY=5
+SUPABASE_MAX_CONCURRENCY_WORKER=2
+SUPABASE_GLOBAL_MAX_CONCURRENCY=18
+SUPABASE_GLOBAL_SEMAPHORE_KEY=supabase:global:permits
+SUPABASE_GLOBAL_SEMAPHORE_TTL=20
+SUPABASE_GLOBAL_ACQUIRE_TIMEOUT=2
+
+# =============================================================================
+# WORKER OVER-PROVISIONING PROTECTION
+# =============================================================================
+MAX_ACTIVE_WORKERS=5
+ALLOW_OVERPROVISION_WORKERS=false
+
+# =============================================================================
+# AI PROVIDER RATE LIMIT PROTECTION
+# =============================================================================
+OPENAI_RATE_LIMIT_RPM=500
+OPENAI_RATE_LIMIT_TPM=200000
+
+# =============================================================================
+# JOB STARVATION PREVENTION
+# =============================================================================
+SHORT_JOB_MAX_WAIT_SECONDS=30
+SHORT_JOB_DURATION_THRESHOLD=5
+
+# =============================================================================
+# DATABASE OPTIMIZATION: CACHING
+# =============================================================================
+DB_CACHE_TTL=300
+MAX_CACHE_SIZE=1000
+DEFAULT_CACHE_TTL=3600
+CACHE_TTL_STATIC=86400
+CACHE_TTL_SEMI_STATIC=3600
+CACHE_TTL_FREQUENT=300
+CACHE_TTL_USER=1800
+CACHE_TTL_QUERY=600
+CACHE_TTL_READINESS_ASSESSMENT=900
+
+# =============================================================================
+# EMBEDDING PRE-GENERATION CONFIGURATION
+# =============================================================================
+ENABLE_EMBEDDING_PREGEN=true
+EMBEDDING_PREGEN_INTERVAL_SECONDS=3600
+EMBEDDING_PREGEN_BATCH_SIZE=50
+EMBEDDING_PREGEN_RATE_LIMIT_DELAY=0.1
+EMBEDDING_PREGEN_CACHE_TTL=604800
+EMBEDDING_TRACKING_WINDOW_HOURS=24
+EMBEDDING_MIN_ACCESS_COUNT=10
+
+# =============================================================================
+# STREAMING CONFIGURATION
+# =============================================================================
+STREAMING_ENABLED=true
+STREAM_CHUNK_TTL=3600
+STREAM_TIMEOUT=300
+
+# =============================================================================
+# DATABASE OPTIMIZATION: BATCHED WRITES
+# =============================================================================
+DB_BATCH_SIZE=50
+DB_BATCH_INTERVAL=2.0
+MAX_BATCH_WAIT=5.0
+
+# =============================================================================
+# RATE LIMITING CONFIGURATION (PERMANENT ENFORCEMENT)
+# =============================================================================
+RATE_LIMIT_TUTOR_CHAT_REQUESTS=60
+RATE_LIMIT_TUTOR_CHAT_WINDOW=3600
+RATE_LIMIT_ANSWER_GRADING_REQUESTS=100
+RATE_LIMIT_ANSWER_GRADING_WINDOW=3600
+RATE_LIMIT_MOCK_EXAM_GRADING_REQUESTS=10
+RATE_LIMIT_MOCK_EXAM_GRADING_WINDOW=3600
+RATE_LIMIT_CONCEPT_EXPLANATION_REQUESTS=200
+RATE_LIMIT_CONCEPT_EXPLANATION_WINDOW=3600
+RATE_LIMIT_LESSON_CREATION_REQUESTS=30
+RATE_LIMIT_LESSON_CREATION_WINDOW=3600
+RATE_LIMIT_ALL_AI_WORK_REQUESTS=500
+RATE_LIMIT_ALL_AI_WORK_WINDOW=3600
+
+# =============================================================================
+# MEMORY SAFETY CONFIGURATION
+# =============================================================================
+MEMORY_THRESHOLD_MB=500
+MEMORY_MONITORING_ENABLED=true
+MEMORY_CHECK_INTERVAL=300

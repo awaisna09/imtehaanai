@@ -1,0 +1,14 @@
+# =============================================================================
+# MINIMAL REQUIRED VARIABLES FOR RAILWAY (COPY-PASTE READY)
+# =============================================================================
+# These are the ABSOLUTE MINIMUM required variables
+# All other variables will use sensible defaults from the code
+# =============================================================================
+
+OPENAI_API_KEY=your_openai_api_key_here
+SUPABASE_URL=https://bgenvwieabtxwzapgeee.supabase.co
+SUPABASE_ANON_KEY=your_supabase_anon_key_here
+REDIS_URL=redis://default:BpymepesTceqpFGWXfQxwbJpaqXbqldH@switchyard.proxy.rlwy.net:19437
+ENVIRONMENT=production
+ALLOWED_ORIGINS=https://imtehaanai.netlify.app,https://imtehaanai.netlify.app/*
+ALLOW_CREDENTIALS=true

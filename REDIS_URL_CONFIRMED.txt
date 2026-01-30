@@ -1,0 +1,64 @@
+# ✅ CONFIRMED REDIS URL FOR RAILWAY
+
+## Redis Public URL (Verified)
+```
+redis://default:BpymepesTceqpFGWXfQxwbJpaqXbqldH@switchyard.proxy.rlwy.net:19437
+```
+
+## ✅ This URL is Correct!
+
+This is the **public URL** from Railway Redis service. Use this exact value for your `REDIS_URL` environment variable.
+
+---
+
+## 📋 How to Use in Railway
+
+### Step 1: Copy the REDIS_URL
+```
+REDIS_URL=redis://default:BpymepesTceqpFGWXfQxwbJpaqXbqldH@switchyard.proxy.rlwy.net:19437
+```
+
+### Step 2: Add to Railway Variables
+1. Go to Railway Dashboard
+2. Select your **API service**
+3. Click **"Variables"** tab
+4. Add or update `REDIS_URL` variable
+5. Paste the value above
+6. **Save**
+
+### Step 3: Redeploy
+- Railway will automatically redeploy
+- Check logs to verify Redis connection
+
+---
+
+## ✅ Verification
+
+After setting the variable, check your deployment logs for:
+- ✅ `Redis connected: production environment`
+- ❌ `Redis connection failed` (if there's still an issue)
+
+---
+
+## 🔍 URL Breakdown
+
+- **Protocol**: `redis://`
+- **Username**: `default` (Railway default)
+- **Password**: `BpymepesTceqpFGWXfQxwbJpaqXbqldH`
+- **Host**: `switchyard.proxy.rlwy.net`
+- **Port**: `19437`
+
+---
+
+## ⚠️ Important Notes
+
+1. **Use this exact URL** - Don't modify it
+2. **No spaces or quotes** - Paste as-is
+3. **Same URL for API and Workers** - Both services must use the same Redis
+4. **Public URL is correct** - This is Railway's public Redis endpoint
+
+---
+
+## ✅ Ready to Deploy!
+
+This Redis URL is confirmed and ready to use. Add it to your Railway API service variables and redeploy.

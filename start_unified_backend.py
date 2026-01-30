@@ -62,18 +62,35 @@ def check_dependencies():
 
 def check_env_file():
     """Check if config.env file exists and has required variables"""
+    # In production (Railway), environment variables are set directly, not via file
+    environment = os.getenv("ENVIRONMENT", "development").lower()
+    
+    # In production, config.env is optional (Railway uses environment variables)
+    if environment == "production":
+        # Check if required environment variables are set directly
+        openai_key = os.getenv('OPENAI_API_KEY')
+        if not openai_key:
+            print("❌ ERROR: OPENAI_API_KEY not found in environment variables")
+            print("Please set OPENAI_API_KEY in Railway environment variables")
+            return False
+        print("✅ Production mode: Using environment variables (config.env not required)")
+        return True
+    
+    # In development, check for config.env file
     env_file = Path('config.env')
     if not env_file.exists():
-        print("❌ ERROR: config.env file not found")
+        print("⚠️  WARNING: config.env file not found (development mode)")
         print("Please create a config.env file with your API keys:")
         print("OPENAI_API_KEY=your_key_here")
         print("LANGSMITH_API_KEY=your_key_here (optional)")
-        return False
+        print("Or set environment variables directly")
+        # Don't fail in development - allow environment variables
+        return True
 
     # Check if file has content
     if env_file.stat().st_size == 0:
-        print("❌ ERROR: config.env file is empty")
-        return False
+        print("⚠️  WARNING: config.env file is empty")
+        return True  # Don't fail, allow environment variables
 
     print("✅ config.env file found")
     return True
@@ -83,12 +100,27 @@ def load_env_vars():
     """Load and validate environment variables"""
     try:
         from dotenv import load_dotenv
-        load_dotenv('config.env')
+        
+        # In production (Railway), environment variables are already set
+        # In development, try to load from config.env if it exists
+        environment = os.getenv("ENVIRONMENT", "development").lower()
+        
+        if environment != "production":
+            # Development mode: try to load config.env if it exists
+            if os.path.exists('config.env'):
+                load_dotenv('config.env')
+                print("✅ Loaded config.env file (development mode)")
+        else:
+            print("✅ Production mode: Using Railway environment variables")
 
-        # Check for required API key
+        # Check for required API key (from environment or config.env)
         openai_key = os.getenv('OPENAI_API_KEY')
         if not openai_key:
-            print("❌ ERROR: OPENAI_API_KEY not found in config.env")
+            print("❌ ERROR: OPENAI_API_KEY not found")
+            if environment == "production":
+                print("Please set OPENAI_API_KEY in Railway environment variables")
+            else:
+                print("Please set OPENAI_API_KEY in config.env or environment variables")
             return False
 
         # Check for optional LangSmith key
