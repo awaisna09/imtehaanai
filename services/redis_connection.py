@@ -35,15 +35,26 @@ class RedisConfig:
         
         # Base configuration
         if self.environment == Environment.PRODUCTION:
-            # Production: Try REDIS_URL first, fall back to separate vars if needed
+            # Production: Prioritize REDIS_URL (Railway provides this)
+            # Fall back to separate vars only if REDIS_URL is not available
             redis_url = os.getenv("REDIS_URL")
             redis_host = os.getenv("REDIS_HOST")
             redis_port = os.getenv("REDIS_PORT")
             redis_password = os.getenv("REDIS_PASSWORD")
             
-            # If separate variables are set, use them
-            # (allows bypassing broken REDIS_URL)
-            if redis_host or redis_port or redis_password:
+            # Priority 1: Use REDIS_URL if available (Railway internal connection)
+            if redis_url:
+                self.host = None
+                self.port = None
+                self.password = None
+                self.db = 0
+                self.url = redis_url
+                logger.info(
+                    f"Using REDIS_URL (production mode): "
+                    f"{redis_url.split('@')[-1] if '@' in redis_url else 'URL-based'}"
+                )
+            # Priority 2: Use separate variables if REDIS_URL is not available
+            elif redis_host or redis_port or redis_password:
                 self.host = redis_host or "localhost"
                 self.port = int(redis_port or 6379)
                 self.password = redis_password or None
@@ -53,18 +64,15 @@ class RedisConfig:
                     f"Using separate Redis variables (production mode): "
                     f"{self.host}:{self.port}"
                 )
-                # Railway Redis requires SSL - log this
+                # Only enable SSL for external Railway hosts (not internal)
                 if ".railway.app" in self.host or ".rlwy.net" in self.host:
                     logger.info(
-                        f"Detected Railway Redis host - SSL will be enabled"
+                        f"Detected external Railway Redis host - SSL will be enabled"
                     )
-            elif redis_url:
-                # Use REDIS_URL if provided and no separate variables
-                self.host = None
-                self.port = None
-                self.password = None
-                self.db = 0
-                self.url = redis_url
+                elif "redis.railway.internal" in self.host:
+                    logger.info(
+                        f"Detected internal Railway Redis host - no SSL needed"
+                    )
             else:
                 # Neither REDIS_URL nor separate variables are set
                 raise ValueError(
@@ -119,16 +127,25 @@ class RedisConfig:
             }
             
         else:
-            # Development/Test: Support both URL and local configuration
-            # Priority: If REDIS_HOST is explicitly set, use separate vars
-            # Otherwise, try REDIS_URL first, then fall back to separate vars
+            # Development/Test: Prioritize REDIS_URL, fall back to separate vars
+            redis_url = os.getenv("REDIS_URL")
             redis_host = os.getenv("REDIS_HOST")
             redis_port = os.getenv("REDIS_PORT")
             redis_password = os.getenv("REDIS_PASSWORD")
             
-            # If separate variables are explicitly set, use them
-            # (allows bypassing broken REDIS_URL)
-            if redis_host or redis_port or redis_password:
+            # Priority 1: Use REDIS_URL if available
+            if redis_url:
+                self.host = None
+                self.port = None
+                self.password = None
+                self.db = 0
+                self.url = redis_url
+                logger.info(
+                    f"Using REDIS_URL (development mode): "
+                    f"{redis_url.split('@')[-1] if '@' in redis_url else 'URL-based'}"
+                )
+            # Priority 2: Use separate variables if REDIS_URL is not available
+            elif redis_host or redis_port or redis_password:
                 self.host = redis_host or "localhost"
                 self.port = int(redis_port or 6379)
                 self.password = redis_password or None
@@ -138,28 +155,22 @@ class RedisConfig:
                     f"Using separate Redis variables (development mode): "
                     f"{self.host}:{self.port}"
                 )
-                # Railway Redis requires SSL - log this
+                # Only enable SSL for external Railway hosts (not internal)
                 if ".railway.app" in self.host or ".rlwy.net" in self.host:
                     logger.info(
-                        f"Detected Railway Redis host - SSL will be enabled"
+                        f"Detected external Railway Redis host - SSL will be enabled"
+                    )
+                elif "redis.railway.internal" in self.host:
+                    logger.info(
+                        f"Detected internal Railway Redis host - no SSL needed"
                     )
             else:
-                # Try REDIS_URL if no separate variables are set
-                redis_url = os.getenv("REDIS_URL")
-                if redis_url:
-                    # Use managed Redis URL if provided
-                    self.host = None
-                    self.port = None
-                    self.password = None
-                    self.db = 0
-                    self.url = redis_url
-                else:
-                    # Local configuration fallback
-                    self.host = os.getenv("REDIS_HOST", "localhost")
-                    self.port = int(os.getenv("REDIS_PORT", 6379))
-                    self.password = os.getenv("REDIS_PASSWORD") or None
-                    self.db = int(os.getenv("REDIS_DB", 0))
-                    self.url = None
+                # Local configuration fallback
+                self.host = os.getenv("REDIS_HOST", "localhost")
+                self.port = int(os.getenv("REDIS_PORT", 6379))
+                self.password = os.getenv("REDIS_PASSWORD") or None
+                self.db = int(os.getenv("REDIS_DB", 0))
+                self.url = None
             
             self.socket_connect_timeout = 3
             self.socket_timeout = 10
@@ -192,11 +203,19 @@ class RedisConfig:
             }
         else:
             # For Railway Redis, check if SSL is required
-            # Railway Redis typically requires SSL/TLS
-            use_ssl = os.getenv("REDIS_SSL", "true").lower() == "true"
-            # If host contains .railway.app or .rlwy.net, likely needs SSL
-            if self.host and (".railway.app" in self.host or ".rlwy.net" in self.host):
-                use_ssl = True
+            # Only external Railway hosts (.rlwy.net, .railway.app) need SSL
+            # Internal hosts (redis.railway.internal) do NOT need SSL
+            use_ssl = False
+            if self.host:
+                # External Railway hosts require SSL
+                if ".railway.app" in self.host or ".rlwy.net" in self.host:
+                    use_ssl = True
+                # Internal Railway hosts do NOT require SSL
+                elif "redis.railway.internal" in self.host:
+                    use_ssl = False
+                # Check REDIS_SSL env var as fallback
+                else:
+                    use_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
             
             # If SSL is needed, use redis.Redis() directly with SSL
             if use_ssl:
