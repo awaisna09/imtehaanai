@@ -62,6 +62,72 @@ logger = logging.getLogger(__name__)
 DEBUG_MODE = os.getenv("GRADING_DEBUG", "false").lower() == "true"
 
 
+def _normalize_text(text: str) -> str:
+    """
+    Normalize text for comparison by:
+    - Converting to lowercase
+    - Removing extra whitespace
+    - Removing punctuation (optional, but helps with comparison)
+    """
+    if not text:
+        return ""
+    # Convert to lowercase and strip
+    normalized = text.lower().strip()
+    # Remove extra whitespace
+    normalized = " ".join(normalized.split())
+    return normalized
+
+
+def _check_answer_similarity_to_question(question: str, student_answer: str) -> tuple[bool, str]:
+    """
+    Check if the student answer is identical or too similar to the question.
+    
+    Returns:
+        (is_similar, reason): Tuple indicating if answer is too similar and why
+    """
+    if not question or not student_answer:
+        return False, ""
+    
+    # Normalize both texts
+    q_normalized = _normalize_text(question)
+    a_normalized = _normalize_text(student_answer)
+    
+    # Check 1: Exact match (after normalization)
+    if q_normalized == a_normalized:
+        return True, "Your answer is identical to the question. Please provide your own answer."
+    
+    # Check 2: Answer is a substring of question (or vice versa)
+    # This catches cases where student copies part of the question
+    if len(a_normalized) > 10:  # Only check if answer has some content
+        if a_normalized in q_normalized:
+            return True, "Your answer appears to be copied from the question. Please answer carefully."
+        if q_normalized in a_normalized and len(a_normalized) - len(q_normalized) < 20:
+            # Answer contains the question with minimal additional text
+            return True, "Your answer is too similar to the question. Please provide your own thoughtful answer."
+    
+    # Check 3: High word overlap (>80% of answer words are in question)
+    q_words = set(q_normalized.split())
+    a_words = set(a_normalized.split())
+    
+    # Remove common stop words for better comparison
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can'}
+    q_words = q_words - stop_words
+    a_words = a_words - stop_words
+    
+    if len(a_words) > 0:
+        overlap = len(a_words & q_words) / len(a_words)
+        if overlap > 0.8 and len(a_words) >= 3:  # At least 80% overlap and 3+ words
+            return True, "Your answer is too similar to the question. Please answer carefully with your own understanding."
+    
+    # Check 4: Answer is very short and mostly matches question words
+    if len(a_normalized) < 50 and len(a_words) > 0:
+        overlap_ratio = len(a_words & q_words) / len(a_words)
+        if overlap_ratio > 0.7:
+            return True, "Your answer appears to be copied from the question. Please provide a proper answer."
+    
+    return False, ""
+
+
 def async_write(fn, *args, **kwargs):
     """
     Fire-and-forget wrapper for database writes.
@@ -1773,6 +1839,16 @@ IMPORTANT:
                 f"📏 Student Answer Length: {len(student_answer)} chars"
             )
             logger.info("-" * 80)
+
+        # VALIDATION: Check if answer is identical or too similar to question
+        is_similar, similarity_reason = _check_answer_similarity_to_question(
+            question, student_answer
+        )
+        if is_similar:
+            logger.warning(
+                f"⚠️  [GRADING] Answer rejected: {similarity_reason}"
+            )
+            raise ValueError(similarity_reason)
 
         try:
             # RAG: get final question, model_answer, and any lesson/context
