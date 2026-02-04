@@ -1846,9 +1846,35 @@ IMPORTANT:
         )
         if is_similar:
             logger.warning(
-                f"⚠️  [GRADING] Answer rejected: {similarity_reason}"
+                f"⚠️  [GRADING] Answer is identical/similar to question: {similarity_reason}"
             )
-            raise ValueError(similarity_reason)
+            # Return F grade with appropriate feedback instead of raising error
+            # Ensure max_marks is available for the result
+            max_marks_value = max_marks if max_marks and max_marks > 0 else 10
+            
+            return GradingResult(
+                overall_score=0.0,
+                percentage=0.0,
+                grade="F",
+                strengths=[],
+                areas_for_improvement=[
+                    similarity_reason,
+                    "Please provide your own answer based on your understanding of the topic."
+                ],
+                specific_feedback=similarity_reason,
+                suggestions=[
+                    "Read the question carefully and understand what is being asked",
+                    "Provide your own answer based on your knowledge and understanding",
+                    "Avoid copying the question text as your answer"
+                ],
+                reasoning_category="wrong",
+                has_misconception=False,
+                topic_name=topic_name,
+                primary_concept_ids=[],
+                secondary_concept_ids=[],
+                mastery_deltas={},
+                max_marks=max_marks_value
+            )
 
         try:
             # RAG: get final question, model_answer, and any lesson/context
