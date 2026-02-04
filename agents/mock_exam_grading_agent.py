@@ -77,6 +77,143 @@ def get_metrics() -> Dict:
     return _metrics.copy()
 
 
+# ============================================================================
+# Validation Functions for Detecting Copied Answers
+# ============================================================================
+
+def _normalize_text(text: str) -> str:
+    """
+    Normalize text for comparison by:
+    - Converting to lowercase
+    - Removing extra whitespace
+    """
+    if not text:
+        return ""
+    # Convert to lowercase and strip
+    normalized = text.lower().strip()
+    # Remove extra whitespace
+    normalized = " ".join(normalized.split())
+    return normalized
+
+
+def _extract_question_text(full_question: str) -> str:
+    """
+    Extract the actual question text from a question that might include context.
+    Looks for patterns like "Q\n", "Question:", etc.
+    """
+    if not full_question:
+        return ""
+    
+    # Try to find the question part after context
+    # Common patterns: "Q\n", "Question:", "Q:", etc.
+    lines = full_question.split('\n')
+    question_started = False
+    question_lines = []
+    
+    for line in lines:
+        line_stripped = line.strip()
+        # Skip empty lines at start
+        if not question_started and not line_stripped:
+            continue
+        # Check if this line starts the question
+        if line_stripped.upper().startswith('Q') and len(line_stripped) <= 3:
+            question_started = True
+            continue
+        # If we've started collecting question, add the line
+        if question_started:
+            question_lines.append(line_stripped)
+        # If line looks like a question (ends with ? or starts with question words)
+        elif any(line_stripped.lower().startswith(qw) for qw in ['outline', 'explain', 'describe', 'discuss', 'analyze', 'evaluate', 'what', 'how', 'why']):
+            question_started = True
+            question_lines.append(line_stripped)
+    
+    # If we found question lines, use them; otherwise use the whole text
+    if question_lines:
+        return ' '.join(question_lines)
+    return full_question
+
+
+def _check_answer_similarity_to_question(question: str, student_answer: str) -> tuple[bool, str]:
+    """
+    Check if the student answer is identical or too similar to the question.
+    
+    Returns:
+        (is_similar, reason): Tuple indicating if answer is too similar and why
+    """
+    if not question or not student_answer:
+        return False, ""
+    
+    # Extract the actual question text (in case it includes context)
+    question_text = _extract_question_text(question)
+    
+    # Normalize both texts
+    q_normalized = _normalize_text(question_text)
+    a_normalized = _normalize_text(student_answer)
+    
+    # Also normalize the full question for substring checks
+    q_full_normalized = _normalize_text(question)
+    
+    # Check 1: Exact match (after normalization) - answer matches question text
+    if q_normalized == a_normalized:
+        return True, "Your answer is identical to the question. Please provide your own answer."
+    
+    # Check 2: Answer is a substring of question (or vice versa)
+    # This catches cases where student copies part of the question
+    if len(a_normalized) > 10:  # Only check if answer has some content
+        # Check if answer is in the question text
+        if a_normalized in q_normalized:
+            return True, "Your answer appears to be copied from the question. Please answer carefully."
+        # Check if answer is in the full question (including context)
+        if a_normalized in q_full_normalized:
+            return True, "Your answer appears to be copied from the question. Please answer carefully."
+        # CRITICAL: Check if question text appears anywhere in the answer
+        # This catches cases where student pastes question at the end of their answer
+        # We check if the normalized question text (at least 20 chars) appears in the answer
+        if len(q_normalized) >= 20 and q_normalized in a_normalized:
+            # Question text found in answer - this is not acceptable
+            return True, "Your answer contains the question text. Please provide only your own answer without copying the question."
+        # Also check if the full question (with context) appears in answer
+        if len(q_full_normalized) >= 20 and q_full_normalized in a_normalized:
+            return True, "Your answer contains the question text. Please provide only your own answer without copying the question."
+        # Check if question is in answer (with minimal additional text) - for shorter questions
+        if len(q_normalized) < 20 and q_normalized in a_normalized and len(a_normalized) - len(q_normalized) < 30:
+            return True, "Your answer is too similar to the question. Please provide your own thoughtful answer."
+    
+    # Check 3: High word overlap (>70% of answer words are in question)
+    q_words = set(q_normalized.split())
+    a_words = set(a_normalized.split())
+    
+    # Remove common stop words for better comparison
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those'}
+    q_words = q_words - stop_words
+    a_words = a_words - stop_words
+    
+    if len(a_words) > 0:
+        overlap = len(a_words & q_words) / len(a_words)
+        # Lower threshold to 70% and require at least 5 words for more accuracy
+        if overlap > 0.7 and len(a_words) >= 5:
+            return True, "Your answer is too similar to the question. Please answer carefully with your own understanding."
+        # For shorter answers, use higher threshold
+        if overlap > 0.85 and len(a_words) >= 3:
+            return True, "Your answer is too similar to the question. Please answer carefully with your own understanding."
+    
+    # Check 4: Answer is very short and mostly matches question words
+    if len(a_normalized) < 100 and len(a_words) > 0:
+        overlap_ratio = len(a_words & q_words) / len(a_words)
+        if overlap_ratio > 0.6:
+            return True, "Your answer appears to be copied from the question. Please provide a proper answer."
+    
+    # Check 5: Similarity ratio using sequence matching
+    # If answer length is similar to question length and high overlap
+    length_ratio = min(len(a_normalized), len(q_normalized)) / max(len(a_normalized), len(q_normalized)) if max(len(a_normalized), len(q_normalized)) > 0 else 0
+    if length_ratio > 0.8 and len(a_words) > 0:
+        overlap_ratio = len(a_words & q_words) / len(a_words)
+        if overlap_ratio > 0.75:
+            return True, "Your answer is too similar to the question. Please answer carefully."
+    
+    return False, ""
+
+
 # Retry decorator for Supabase operations
 def retry_supabase_operation(
     max_retries: int = 3,
@@ -660,6 +797,35 @@ class MockExamGradingAgent:
                 else question_id
             )
 
+            # VALIDATION: Check if answer is identical or too similar to question
+            is_similar, similarity_reason = _check_answer_similarity_to_question(
+                question_text, student_answer
+            )
+            if is_similar:
+                logger.warning(
+                    f"⚠️  [MOCK EXAM GRADING] Answer is identical/similar to question: {similarity_reason}"
+                )
+                # Return F grade with appropriate feedback instead of grading
+                concept_ids = self.detect_concepts_for_question(question_text)
+                return QuestionGrade(
+                    question_id=question_id,
+                    question_number=question_number,
+                    part=part,
+                    question_text=question_text,
+                    student_answer=student_answer,
+                    model_answer=model_answer,
+                    marks_allocated=marks,
+                    marks_awarded=0.0,
+                    percentage_score=0.0,
+                    feedback=similarity_reason,
+                    strengths=[],
+                    improvements=[
+                        similarity_reason,
+                        "Please provide your own answer based on your understanding of the topic."
+                    ],
+                    concept_ids=concept_ids,
+                )
+
             # Detect concepts for this question (for adaptive layer)
             concept_ids = self.detect_concepts_for_question(question_text)
 
@@ -882,6 +1048,63 @@ You are an expert Cambridge IGCSE {subject_display} examiner grading a mock exam
 Please evaluate the student's answer comprehensively using IGCSE {subject_display} standards.
 
 {subject_context}
+
+────────────────────────────────────────
+CRITICAL: DETECT COPIED ANSWERS
+────────────────────────────────────────
+BEFORE grading, you MUST check if the student's answer is identical or 
+too similar to the question itself. This is a critical validation step.
+
+CHECK FOR:
+1. **Exact Match**: If the student's answer is identical to the question 
+   text (after ignoring case and extra spaces), this is NOT a valid answer.
+   
+2. **Question Text in Answer**: If the question text appears ANYWHERE in 
+   the student's answer (at the beginning, middle, or end), this is NOT 
+   acceptable. The student should provide ONLY their own answer, not include 
+   the question text.
+   
+3. **Question Copying**: If the student has copied the question text 
+   (or a significant portion of it) as their answer, this is NOT acceptable.
+   
+4. **High Similarity**: If the student's answer contains 70% or more of 
+   the same words as the question, it is likely copied and should be rejected.
+
+5. **Context Copying**: If the question includes context (like a case study) 
+   and the student copies text from that context as their answer, this 
+   should be detected.
+
+IF YOU DETECT THAT THE ANSWER IS COPIED FROM THE QUESTION:
+• Return marks_awarded = 0
+• Return percentage_score = 0.0
+• In feedback, write: "Your answer is identical or too similar to the 
+  question. Please answer carefully and provide your own response based 
+  on your understanding."
+• In improvements, include: "Please provide your own answer based on your 
+  understanding of the topic, rather than copying the question."
+• In strengths, leave empty or include minimal acknowledgment
+
+EXAMPLES OF COPIED ANSWERS TO REJECT:
+• Question: "Outline two ways the economic problem could influence 
+  Amina's stock decisions."
+  Student Answer: "Outline two ways the economic problem could influence 
+  Amina's stock decisions." → REJECT (0 marks, 0%)
+  
+• Question: "Outline two examples of capital that Nida might use in her 
+  flower shop."
+  Student Answer: "Nida is planning to open a small flower shop. She will 
+  need land for the shop, workers to arrange flowers, tools like scissors 
+  and fridges, and she will take the risk of starting the business.
+  Q
+  Outline two examples of capital that Nida might use in her flower shop." 
+  → REJECT (0 marks, 0%) - Question text appears in answer!
+  
+• Question: "What is inflation?"
+  Student Answer: "Inflation is when prices rise. What is inflation?" 
+  → REJECT (0 marks, 0%) - Question text appears at the end!
+
+DO NOT grade these as regular answers. They must receive 0 marks with 
+appropriate feedback.
 
 ────────────────────────────────────────
 WORD COUNT GUIDELINES FOR OPTIMAL GRADING
