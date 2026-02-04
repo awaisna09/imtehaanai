@@ -1854,6 +1854,57 @@ When writing feedback:
 • Make the connection between the required marks and the missing
   components clear.
 
+────────────────────────────────────────
+CRITICAL: DETECT COPIED ANSWERS
+────────────────────────────────────────
+BEFORE grading, you MUST check if the student's answer is identical or 
+too similar to the question itself. This is a critical validation step.
+
+CHECK FOR:
+1. **Exact Match**: If the student's answer is identical to the question 
+   text (after ignoring case and extra spaces), this is NOT a valid answer.
+   
+2. **Question Copying**: If the student has copied the question text 
+   (or a significant portion of it) as their answer, this is NOT acceptable.
+   
+3. **High Similarity**: If the student's answer contains 70% or more of 
+   the same words as the question, it is likely copied and should be rejected.
+
+4. **Context Copying**: If the question includes context (like a case study) 
+   and the student copies text from that context as their answer, this 
+   should be detected.
+
+IF YOU DETECT THAT THE ANSWER IS COPIED FROM THE QUESTION:
+• Return overall_score = 0.0
+• Return percentage = 0.0
+• Return grade = "F"
+• Set reasoning_category = "wrong"
+• Set has_misconception = false
+• In specific_feedback, write: "Your answer is identical or too similar 
+  to the question. Please answer carefully and provide your own response 
+  based on your understanding."
+• In areas_for_improvement, include: "Please provide your own answer 
+  based on your understanding of the topic, rather than copying the question."
+• In suggestions, include:
+  - "Read the question carefully and understand what is being asked"
+  - "Provide your own answer based on your knowledge and understanding"
+  - "Avoid copying the question text or context as your answer"
+
+EXAMPLES OF COPIED ANSWERS TO REJECT:
+• Question: "Outline two ways the economic problem could influence 
+  Amina's stock decisions."
+  Student Answer: "Outline two ways the economic problem could influence 
+  Amina's stock decisions." → REJECT (F grade, 0 marks)
+  
+• Question includes context about "Amina manages a bookstore..."
+  Student Answer: "Amina manages a bookstore..." → REJECT (F grade, 0 marks)
+
+• Question: "Explain the concept of opportunity cost."
+  Student Answer: "Explain the concept of opportunity cost" → REJECT (F grade, 0 marks)
+
+DO NOT grade these as regular answers. They must receive 0 marks and 
+grade F with appropriate feedback.
+
 IMPORTANT:
 • DO NOT modify any JSON fields or output structure.
 • DO NOT add new fields.
