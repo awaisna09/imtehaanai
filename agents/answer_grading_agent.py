@@ -148,8 +148,17 @@ def _check_answer_similarity_to_question(question: str, student_answer: str) -> 
         # Check if answer is in the full question (including context)
         if a_normalized in q_full_normalized:
             return True, "Your answer appears to be copied from the question. Please answer carefully."
-        # Check if question is in answer (with minimal additional text)
-        if q_normalized in a_normalized and len(a_normalized) - len(q_normalized) < 30:
+        # CRITICAL: Check if question text appears anywhere in the answer
+        # This catches cases where student pastes question at the end of their answer
+        # We check if the normalized question text (at least 20 chars) appears in the answer
+        if len(q_normalized) >= 20 and q_normalized in a_normalized:
+            # Question text found in answer - this is not acceptable
+            return True, "Your answer contains the question text. Please provide only your own answer without copying the question."
+        # Also check if the full question (with context) appears in answer
+        if len(q_full_normalized) >= 20 and q_full_normalized in a_normalized:
+            return True, "Your answer contains the question text. Please provide only your own answer without copying the question."
+        # Check if question is in answer (with minimal additional text) - for shorter questions
+        if len(q_normalized) < 20 and q_normalized in a_normalized and len(a_normalized) - len(q_normalized) < 30:
             return True, "Your answer is too similar to the question. Please provide your own thoughtful answer."
     
     # Check 3: High word overlap (>70% of answer words are in question)
@@ -1864,13 +1873,18 @@ CHECK FOR:
 1. **Exact Match**: If the student's answer is identical to the question 
    text (after ignoring case and extra spaces), this is NOT a valid answer.
    
-2. **Question Copying**: If the student has copied the question text 
+2. **Question Text in Answer**: If the question text appears ANYWHERE in 
+   the student's answer (at the beginning, middle, or end), this is NOT 
+   acceptable. The student should provide ONLY their own answer, not include 
+   the question text.
+   
+3. **Question Copying**: If the student has copied the question text 
    (or a significant portion of it) as their answer, this is NOT acceptable.
    
-3. **High Similarity**: If the student's answer contains 70% or more of 
+4. **High Similarity**: If the student's answer contains 70% or more of 
    the same words as the question, it is likely copied and should be rejected.
 
-4. **Context Copying**: If the question includes context (like a case study) 
+5. **Context Copying**: If the question includes context (like a case study) 
    and the student copies text from that context as their answer, this 
    should be detected.
 
@@ -1896,11 +1910,24 @@ EXAMPLES OF COPIED ANSWERS TO REJECT:
   Student Answer: "Outline two ways the economic problem could influence 
   Amina's stock decisions." → REJECT (F grade, 0 marks)
   
+• Question: "Outline two examples of capital that Nida might use in her 
+  flower shop."
+  Student Answer: "Nida is planning to open a small flower shop. She will 
+  need land for the shop, workers to arrange flowers, tools like scissors 
+  and fridges, and she will take the risk of starting the business.
+  Q
+  Outline two examples of capital that Nida might use in her flower shop." 
+  → REJECT (F grade, 0 marks) - Question text appears in answer!
+  
 • Question includes context about "Amina manages a bookstore..."
   Student Answer: "Amina manages a bookstore..." → REJECT (F grade, 0 marks)
 
 • Question: "Explain the concept of opportunity cost."
   Student Answer: "Explain the concept of opportunity cost" → REJECT (F grade, 0 marks)
+  
+• Question: "What is inflation?"
+  Student Answer: "Inflation is when prices rise. What is inflation?" 
+  → REJECT (F grade, 0 marks) - Question text appears at the end!
 
 DO NOT grade these as regular answers. They must receive 0 marks and 
 grade F with appropriate feedback.
