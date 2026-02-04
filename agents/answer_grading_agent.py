@@ -78,6 +78,43 @@ def _normalize_text(text: str) -> str:
     return normalized
 
 
+def _extract_question_text(full_question: str) -> str:
+    """
+    Extract the actual question text from a question that might include context.
+    Looks for patterns like "Q\n", "Question:", etc.
+    """
+    if not full_question:
+        return ""
+    
+    # Try to find the question part after context
+    # Common patterns: "Q\n", "Question:", "Q:", etc.
+    lines = full_question.split('\n')
+    question_started = False
+    question_lines = []
+    
+    for line in lines:
+        line_stripped = line.strip()
+        # Skip empty lines at start
+        if not question_started and not line_stripped:
+            continue
+        # Check if this line starts the question
+        if line_stripped.upper().startswith('Q') and len(line_stripped) <= 3:
+            question_started = True
+            continue
+        # If we've started collecting question, add the line
+        if question_started:
+            question_lines.append(line_stripped)
+        # If line looks like a question (ends with ? or starts with question words)
+        elif any(line_stripped.lower().startswith(qw) for qw in ['outline', 'explain', 'describe', 'discuss', 'analyze', 'evaluate', 'what', 'how', 'why']):
+            question_started = True
+            question_lines.append(line_stripped)
+    
+    # If we found question lines, use them; otherwise use the whole text
+    if question_lines:
+        return ' '.join(question_lines)
+    return full_question
+
+
 def _check_answer_similarity_to_question(question: str, student_answer: str) -> tuple[bool, str]:
     """
     Check if the student answer is identical or too similar to the question.
@@ -88,42 +125,64 @@ def _check_answer_similarity_to_question(question: str, student_answer: str) -> 
     if not question or not student_answer:
         return False, ""
     
+    # Extract the actual question text (in case it includes context)
+    question_text = _extract_question_text(question)
+    
     # Normalize both texts
-    q_normalized = _normalize_text(question)
+    q_normalized = _normalize_text(question_text)
     a_normalized = _normalize_text(student_answer)
     
-    # Check 1: Exact match (after normalization)
+    # Also normalize the full question for substring checks
+    q_full_normalized = _normalize_text(question)
+    
+    # Check 1: Exact match (after normalization) - answer matches question text
     if q_normalized == a_normalized:
         return True, "Your answer is identical to the question. Please provide your own answer."
     
     # Check 2: Answer is a substring of question (or vice versa)
     # This catches cases where student copies part of the question
     if len(a_normalized) > 10:  # Only check if answer has some content
+        # Check if answer is in the question text
         if a_normalized in q_normalized:
             return True, "Your answer appears to be copied from the question. Please answer carefully."
-        if q_normalized in a_normalized and len(a_normalized) - len(q_normalized) < 20:
-            # Answer contains the question with minimal additional text
+        # Check if answer is in the full question (including context)
+        if a_normalized in q_full_normalized:
+            return True, "Your answer appears to be copied from the question. Please answer carefully."
+        # Check if question is in answer (with minimal additional text)
+        if q_normalized in a_normalized and len(a_normalized) - len(q_normalized) < 30:
             return True, "Your answer is too similar to the question. Please provide your own thoughtful answer."
     
-    # Check 3: High word overlap (>80% of answer words are in question)
+    # Check 3: High word overlap (>70% of answer words are in question)
     q_words = set(q_normalized.split())
     a_words = set(a_normalized.split())
     
     # Remove common stop words for better comparison
-    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can'}
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those'}
     q_words = q_words - stop_words
     a_words = a_words - stop_words
     
     if len(a_words) > 0:
         overlap = len(a_words & q_words) / len(a_words)
-        if overlap > 0.8 and len(a_words) >= 3:  # At least 80% overlap and 3+ words
+        # Lower threshold to 70% and require at least 5 words for more accuracy
+        if overlap > 0.7 and len(a_words) >= 5:
+            return True, "Your answer is too similar to the question. Please answer carefully with your own understanding."
+        # For shorter answers, use higher threshold
+        if overlap > 0.85 and len(a_words) >= 3:
             return True, "Your answer is too similar to the question. Please answer carefully with your own understanding."
     
     # Check 4: Answer is very short and mostly matches question words
-    if len(a_normalized) < 50 and len(a_words) > 0:
+    if len(a_normalized) < 100 and len(a_words) > 0:
         overlap_ratio = len(a_words & q_words) / len(a_words)
-        if overlap_ratio > 0.7:
+        if overlap_ratio > 0.6:
             return True, "Your answer appears to be copied from the question. Please provide a proper answer."
+    
+    # Check 5: Similarity ratio using sequence matching
+    # If answer length is similar to question length and high overlap
+    length_ratio = min(len(a_normalized), len(q_normalized)) / max(len(a_normalized), len(q_normalized)) if max(len(a_normalized), len(q_normalized)) > 0 else 0
+    if length_ratio > 0.8 and len(a_words) > 0:
+        overlap_ratio = len(a_words & q_words) / len(a_words)
+        if overlap_ratio > 0.75:
+            return True, "Your answer is too similar to the question. Please answer carefully."
     
     return False, ""
 
