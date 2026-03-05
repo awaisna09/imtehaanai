@@ -338,9 +338,3 @@ After deployment:
    - Configure custom domain in Railway
    - Update CORS settings
    - Update frontend configuration
-
----
-
-**Ready to deploy!** This repository is self-contained and can be deployed independently from the workers.
-#   i m t e h a a n a i  
- 
